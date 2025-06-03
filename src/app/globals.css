@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+@layer base {
+  :root {
+    --background: 240 17% 96%; /* Off-white #F4F3F6 */
+    --foreground: 240 10% 20%; /* Darker text for contrast */
+    --card: 240 17% 99%; /* Slightly lighter than background for cards */
+    --card-foreground: 240 10% 20%;
+    --popover: 240 17% 99%;
+    --popover-foreground: 240 10% 20%;
+    --primary: 255 25% 80%; /* Dusty Lavender #C1B6D9 */
+    --primary-foreground: 240 10% 15%; /* Dark text for primary */
+    --secondary: 255 20% 88%; /* Lighter shade of primary */
+    --secondary-foreground: 240 10% 15%;
+    --muted: 240 15% 90%; /* Muted version of background */
+    --muted-foreground: 240 8% 45%;
+    --accent: 202 32% 68%; /* Soft Blue #93B5C6 */
+    --accent-foreground: 240 10% 15%; /* Dark text for accent */
+    --destructive: 0 72% 51%; /* Adjusted for better visibility */
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 10% 80%; /* Softer border */
+    --input: 240 10% 92%; /* Lighter input background */
+    --ring: 202 32% 68%; /* Accent color for rings */
+    --radius: 0.5rem;
+
+    /* Chart colors - can be adjusted if specific palette needed */
+    --chart-1: 255 25% 70%; /* Variation of primary */
+    --chart-2: 202 32% 60%; /* Variation of accent */
+    --chart-3: 255 25% 50%; 
+    --chart-4: 202 32% 40%;
+    --chart-5: 240 10% 50%;
+
+    /* Sidebar specific theme */
+    --sidebar-background: 250 20% 92%; /* Slightly different from main bg, closer to primary but muted */
+    --sidebar-foreground: 240 10% 25%;
+    --sidebar-primary: 202 32% 68%; /* Accent for active/highlighted sidebar items */
+    --sidebar-primary-foreground: 0 0% 98%; /* White/very light text on sidebar primary */
+    --sidebar-accent: 255 25% 85%; /* Lighter primary for hover */
+    --sidebar-accent-foreground: 240 10% 15%;
+    --sidebar-border: 250 15% 80%;
+    --sidebar-ring: 202 32% 68%;
+  }
+
+  .dark {
+    /* Keeping dark mode mostly as is, but adjusting to new palette if time permits. For now, focusing on light mode. */
+    --background: 240 10% 10%;
+    --foreground: 240 5% 95%;
+    --card: 240 10% 12%;
+    --card-foreground: 240 5% 95%;
+    --popover: 240 10% 12%;
+    --popover-foreground: 240 5% 95%;
+    --primary: 255 25% 70%; 
+    --primary-foreground: 240 10% 10%;
+    --secondary: 255 20% 60%;
+    --secondary-foreground: 240 10% 10%;
+    --muted: 240 8% 20%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 202 32% 58%;
+    --accent-foreground: 240 5% 98%;
+    --destructive: 0 65% 55%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 8% 25%;
+    --input: 240 8% 22%;
+    --ring: 202 32% 58%;
+
+    --chart-1: 255 25% 60%;
+    --chart-2: 202 32% 50%;
+    --chart-3: 255 25% 40%;
+    --chart-4: 202 32% 30%;
+    --chart-5: 240 10% 40%;
+
+    --sidebar-background: 240 10% 15%;
+    --sidebar-foreground: 240 5% 90%;
+    --sidebar-primary: 202 32% 58%;
+    --sidebar-primary-foreground: 240 5% 98%;
+    --sidebar-accent: 255 25% 65%;
+    --sidebar-accent-foreground: 240 10% 10%;
+    --sidebar-border: 240 8% 25%;
+    --sidebar-ring: 202 32% 58%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
