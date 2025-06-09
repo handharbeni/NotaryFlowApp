@@ -5,8 +5,8 @@ import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Toolti
 import { ChartTooltipContent, ChartConfig, ChartContainer } from '@/components/ui/chart';
 
 export interface WorkloadChartDataPoint {
-  name: string; // Staff name
-  tasks: number; // Number of active tasks
+  name: string; 
+  tasks: number; 
 }
 
 interface WorkloadChartProps {
@@ -15,7 +15,7 @@ interface WorkloadChartProps {
 
 const chartConfig = {
   tasks: {
-    label: "Active Tasks",
+    label: "Tugas Aktif", // Translated
     color: "hsl(var(--chart-1))",
   },
 } satisfies ChartConfig;
@@ -23,7 +23,7 @@ const chartConfig = {
 
 export function WorkloadChart({ data }: WorkloadChartProps) {
   if (!data || data.length === 0) {
-    return <div className="flex items-center justify-center h-[350px] text-muted-foreground">No workload data available.</div>;
+    return <div className="flex items-center justify-center h-[350px] text-muted-foreground">Tidak ada data beban kerja tersedia.</div>;
   }
   return (
     <div className="h-[350px] w-full">
@@ -51,11 +51,10 @@ export function WorkloadChart({ data }: WorkloadChartProps) {
             content={<ChartTooltipContent hideLabel />}
           />
           <Legend />
-          <Bar dataKey="tasks" fill="var(--color-tasks)" radius={[4, 4, 0, 0]} name="Active Tasks" />
+          <Bar dataKey="tasks" fill="var(--color-tasks)" radius={[4, 4, 0, 0]} name="Tugas Aktif" /> 
         </BarChart>
       </ResponsiveContainer>
       </ChartContainer>
     </div>
   );
 }
-

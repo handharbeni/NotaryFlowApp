@@ -10,41 +10,35 @@ interface BasicDocumentInfo {
   id: string;
   name: string;
   type?: string;
+  ownCloudPath?: string; 
+  isOriginalRequested?: boolean; // Added
+  originalFileHolderId?: string | null; // Added
 }
 
 async function getPageData(): Promise<{
   availableDocs: BasicDocumentInfo[];
-  globallyUsedPrimaryDocIds: string[];
-  globallyUsedSupportingDocIds: string[];
   allUsers: Pick<User, 'id' | 'username' | 'email' | 'role' | 'name' | 'createdAt'>[];
 }> {
   const connection = await pool.getConnection();
   try {
     const [docRows]: [any[], any] = await connection.execute(
-      'SELECT id, name, type FROM documents ORDER BY name ASC'
+      'SELECT id, name, type, ownCloudPath, isOriginalRequested, originalFileHolderId FROM documents ORDER BY name ASC' // Added new fields
     );
     const availableDocs: BasicDocumentInfo[] = docRows.map((d: any) => ({
       id: d.id,
       name: d.name,
       type: d.type || undefined,
+      ownCloudPath: d.ownCloudPath || undefined,
+      isOriginalRequested: Boolean(d.isOriginalRequested), // Added
+      originalFileHolderId: d.originalFileHolderId,      // Added
     }));
-
-    const [unavailablePrimaryRows]: [any[], any] = await connection.execute(
-      'SELECT DISTINCT primary_document_id FROM tasks WHERE primary_document_id IS NOT NULL'
-    );
-    const globallyUsedPrimaryDocIds: string[] = unavailablePrimaryRows.map((row: any) => row.primary_document_id);
-
-    const [unavailableSupportingRows]: [any[], any] = await connection.execute(
-      'SELECT DISTINCT document_id FROM task_documents'
-    );
-    const globallyUsedSupportingDocIds: string[] = unavailableSupportingRows.map((row: any) => row.document_id);
 
     const allUsers = await fetchUsers(); // Fetch all users
 
-    return { availableDocs, globallyUsedPrimaryDocIds, globallyUsedSupportingDocIds, allUsers };
+    return { availableDocs, allUsers };
   } catch (error) {
     console.error("Error fetching data for new task form:", error);
-    return { availableDocs: [], globallyUsedPrimaryDocIds: [], globallyUsedSupportingDocIds: [], allUsers: [] };
+    return { availableDocs: [], allUsers: [] };
   } finally {
     connection.release();
   }
@@ -53,7 +47,7 @@ async function getPageData(): Promise<{
 
 // This page needs to be a Server Component to fetch initial data
 export default async function NewTaskPage() {
-  const { availableDocs, globallyUsedPrimaryDocIds, globallyUsedSupportingDocIds, allUsers } = await getPageData();
+  const { availableDocs, allUsers } = await getPageData();
 
   return (
     <div className="container mx-auto px-4 md:px-6 py-6">
@@ -74,8 +68,6 @@ export default async function NewTaskPage() {
         <CardContent>
           <TaskForm 
             availableDocuments={availableDocs}
-            globallyUsedPrimaryDocIds={globallyUsedPrimaryDocIds} 
-            globallyUsedSupportingDocIds={globallyUsedSupportingDocIds}
             allUsers={allUsers}
             // No onSubmit prop, TaskForm handles create via internal Server Action call
           />
@@ -84,4 +76,3 @@ export default async function NewTaskPage() {
     </div>
   );
 }
-

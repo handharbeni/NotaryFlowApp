@@ -3,16 +3,17 @@ import { StatisticCard } from '@/components/dashboard/StatisticCard';
 import { WorkloadChart, type WorkloadChartDataPoint } from '@/components/dashboard/WorkloadChart';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { FilePlus, ListChecks, UserCheck, Clock, Users, Activity, FolderArchive, CheckSquare, FileWarning, Building } from 'lucide-react';
+import { FilePlus, ListChecks, UserCheck, Clock, Users, Activity, FolderArchive, CheckSquare, FileWarning, Building, FileSignature, Send } from 'lucide-react'; // Added Send here
 import Link from 'next/link';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import type { UserRole, User as SessionUser } from '@/types';
 import { fetchActionableTasksCountForUser } from '@/actions/taskActions';
-import { fetchUsers } from '@/actions/userActions'; // For admin stats
+import { fetchUsers } from '@/actions/userActions'; 
 import pool from '@/lib/db'; 
 import type { RowDataPacket } from 'mysql2';
 import { formatDistanceToNow } from 'date-fns';
+import { id as localeID } from 'date-fns/locale';
 
 
 interface DashboardStat {
@@ -38,10 +39,10 @@ async function getDashboardStatsForRole(currentUser: SessionUser & { role: UserR
       const [taskRows] = await pool.query<RowDataPacket[]>('SELECT COUNT(*) as count FROM tasks');
       const [docRows] = await pool.query<RowDataPacket[]>('SELECT COUNT(*) as count FROM documents');
       stats = [
-        { title: 'Total Users', value: allUsers.length.toString(), icon: Users, description: 'All registered users in the system' },
-        { title: 'Total Tasks', value: taskRows[0].count.toString(), icon: ListChecks, description: 'All tasks, across all statuses' },
-        { title: 'Documents in System', value: docRows[0].count.toString(), icon: FolderArchive, description: 'Total documents managed' },
-        { title: 'System Health', value: 'Online', icon: Activity, description: 'Current system operational status' },
+        { title: 'Total Pengguna', value: allUsers.length.toString(), icon: Users, description: 'Semua pengguna terdaftar di sistem' },
+        { title: 'Total Tugas', value: taskRows[0].count.toString(), icon: ListChecks, description: 'Semua tugas, di semua status' },
+        { title: 'Dokumen di Sistem', value: docRows[0].count.toString(), icon: FolderArchive, description: 'Total dokumen yang dikelola' },
+        { title: 'Kesehatan Sistem', value: 'Online', icon: Activity, description: 'Status operasional sistem saat ini' },
       ];
       break;
     case 'manager':
@@ -77,57 +78,60 @@ async function getDashboardStatsForRole(currentUser: SessionUser & { role: UserR
           [staffUserIds]
         );
         if (mostActiveStaffRows.length > 0) {
-          staffWithMostTasks = `${mostActiveStaffRows[0].staffName} (${mostActiveStaffRows[0].taskCount} tasks)`;
+          staffWithMostTasks = `${mostActiveStaffRows[0].staffName} (${mostActiveStaffRows[0].taskCount} tugas)`;
         }
       }
+      const [approvedTasksForNotaryPrep] = await pool.query<RowDataPacket[]>(
+        "SELECT COUNT(*) as count FROM tasks WHERE status = 'Approved'"
+      );
 
       stats = [
-        { title: 'Tasks Pending Your Review', value: tasksPendingReviewCount.toString(), icon: FileWarning, description: 'Tasks submitted by staff or CS awaiting your approval' },
-        { title: 'Team Active Tasks', value: teamActiveTasksCount.toString(), icon: ListChecks, description: 'Active tasks assigned to your staff members' },
-        { title: 'Busiest Staff Member', value: staffWithMostTasks, icon: UserCheck, description: 'Staff with the highest current active workload' },
-        { title: 'Avg. Task Completion', value: 'N/A', icon: Clock, description: 'Team average for task completion (placeholder)' },
+        { title: 'Tugas Menunggu Review Anda', value: tasksPendingReviewCount.toString(), icon: FileWarning, description: 'Tugas yang dikirim staf atau CS menunggu persetujuan Anda' },
+        { title: 'Tugas Aktif Tim', value: teamActiveTasksCount.toString(), icon: ListChecks, description: 'Tugas aktif yang ditugaskan ke anggota staf Anda' },
+        { title: 'Siap Dikirim ke Persiapan Notaris (CS)', value: approvedTasksForNotaryPrep[0].count.toString(), icon: Send, description: 'Tugas yang disetujui dan siap untuk dikirim ke CS untuk persiapan notaris.' },
+        { title: 'Staf Paling Sibuk', value: staffWithMostTasks, icon: UserCheck, description: 'Staf dengan beban kerja aktif tertinggi saat ini' },
       ];
       break;
     case 'staff':
       const [staffOverdueTasks] = await pool.query<RowDataPacket[]>("SELECT COUNT(*) as count FROM tasks WHERE assignedTo = ? AND status IN ('To Do', 'In Progress') AND dueDate < NOW()", [userId]);
 
       stats = [
-        { title: 'Your Active Tasks', value: actionableTasksCount.toString(), icon: ListChecks, description: 'Tasks assigned to you that are "To Do" or "In Progress"' },
-        { title: 'Your Overdue Tasks', value: staffOverdueTasks[0].count.toString(), icon: Clock, changeType: 'negative', description: 'Your tasks past their due date' },
-        { title: 'Upcoming Deadlines', value: 'N/A', icon: FileWarning, description: 'Tasks due in the next 7 days (placeholder)' }, 
-        { title: 'Your Completed (Month)', value: 'N/A', icon: CheckSquare, description: 'Tasks you completed this month (placeholder)' },
+        { title: 'Tugas Aktif Anda', value: actionableTasksCount.toString(), icon: ListChecks, description: 'Tugas yang ditugaskan kepada Anda yang berstatus "To Do" atau "In Progress"' },
+        { title: 'Tugas Terlambat Anda', value: staffOverdueTasks[0].count.toString(), icon: Clock, changeType: 'negative', description: 'Tugas Anda yang melewati batas waktu' },
+        { title: 'Tenggat Waktu Mendatang', value: 'N/A', icon: FileWarning, description: 'Tugas yang akan jatuh tempo dalam 7 hari ke depan (placeholder)' }, 
+        { title: 'Selesai Bulan Ini', value: 'N/A', icon: CheckSquare, description: 'Tugas yang Anda selesaikan bulan ini (placeholder)' },
       ];
       break;
     case 'cs':
       const [tasksToPrepForManager] = await pool.query<RowDataPacket[]>("SELECT COUNT(*) as count FROM tasks WHERE status = 'To Do' AND (assignedTo = ? OR assignedTo IS NULL)", [userId]);
-      const [tasksToSendToNotary] = await pool.query<RowDataPacket[]>("SELECT COUNT(*) as count FROM tasks WHERE status = 'Approved'"); 
+      const [tasksPendingNotaryFileCollection] = await pool.query<RowDataPacket[]>("SELECT COUNT(*) as count FROM tasks WHERE status = 'Pending Notarization'"); 
       const [tasksToArchive] = await pool.query<RowDataPacket[]>("SELECT COUNT(*) as count FROM tasks WHERE status = 'Notarization Complete'"); 
 
       stats = [
-        { title: 'Tasks to Prepare for Manager', value: tasksToPrepForManager[0].count.toString(), icon: FilePlus, description: "New tasks you're preparing or need to submit" },
-        { title: 'Tasks to Send to Notary', value: tasksToSendToNotary[0].count.toString(), icon: CheckSquare, description: "Tasks approved and ready for notary assignment" },
-        { title: 'Tasks to Archive', value: tasksToArchive[0].count.toString(), icon: FolderArchive, description: "Tasks with notarization complete, ready for archival" },
-        { title: 'Docs Processed Today', value: 'N/A', icon: FilePlus, description: 'Documents handled by CS today (placeholder)' },
+        { title: 'Tugas untuk Disiapkan ke Manajer', value: tasksToPrepForManager[0].count.toString(), icon: FilePlus, description: "Tugas baru yang sedang Anda siapkan atau perlu dikirim" },
+        { title: 'Tugas Menunggu Persiapan Notaris', value: tasksPendingNotaryFileCollection[0].count.toString(), icon: FileSignature, description: "Tugas yang perlu dikumpulkan filenya dan disiapkan untuk notaris." },
+        { title: 'Tugas untuk Diarsipkan', value: tasksToArchive[0].count.toString(), icon: FolderArchive, description: "Tugas dengan notarisasi selesai, siap untuk pengarsipan" },
+        { title: 'Dokumen Diproses Hari Ini', value: 'N/A', icon: FilePlus, description: 'Dokumen yang ditangani CS hari ini (placeholder)' },
       ];
       break;
     case 'notary':
+      const [tasksReadyForNotarization] = await pool.query<RowDataPacket[]>("SELECT COUNT(*) as count FROM tasks WHERE status = 'Ready for Notarization' AND (assignedTo = ? OR assignedTo IS NULL)", [userId]);
       stats = [
-        { title: 'Tasks Pending Notarization', value: actionableTasksCount.toString(), icon: Building, description: 'Tasks ready for you to notarize (unassigned or assigned to you)' },
-        { title: 'Notarizations This Month', value: 'N/A', icon: CheckSquare, description: 'Total notarizations you completed this month (placeholder)' },
-        { title: 'Available Slots Today', value: 'N/A', icon: UserCheck, description: 'Your available appointment slots (placeholder)' },
-        { title: 'Avg. Notarization Time', value: 'N/A', icon: Clock, description: 'Your average time per notarization (placeholder)' },
+        { title: 'Tugas Siap untuk Notarisasi', value: tasksReadyForNotarization[0].count.toString(), icon: Building, description: 'Tugas siap untuk Anda notarisasi (belum ditugaskan atau ditugaskan kepada Anda)' },
+        { title: 'Notarisasi Bulan Ini', value: 'N/A', icon: CheckSquare, description: 'Total notarisasi yang Anda selesaikan bulan ini (placeholder)' },
+        { title: 'Slot Tersedia Hari Ini', value: 'N/A', icon: UserCheck, description: 'Slot janji temu Anda yang tersedia (placeholder)' },
+        { title: 'Rata-rata Waktu Notarisasi', value: 'N/A', icon: Clock, description: 'Rata-rata waktu Anda per notarisasi (placeholder)' },
       ];
       break;
     default: 
       stats = [
-        { title: 'Active Tasks', value: actionableTasksCount.toString(), icon: ListChecks, description: 'Your currently active tasks' },
-        { title: 'System Status', value: 'Online', icon: Activity, description: 'Current system operational status' },
+        { title: 'Tugas Aktif', value: actionableTasksCount.toString(), icon: ListChecks, description: 'Tugas aktif Anda saat ini' },
+        { title: 'Status Sistem', value: 'Online', icon: Activity, description: 'Status operasional sistem saat ini' },
       ];
   }
   return stats;
 }
 
-// For Workload Chart (Managers/Admins)
 async function getWorkloadDistribution(): Promise<WorkloadChartDataPoint[]> {
   try {
     const [rows] = await pool.query<RowDataPacket[]>(`
@@ -146,9 +150,8 @@ async function getWorkloadDistribution(): Promise<WorkloadChartDataPoint[]> {
   }
 }
 
-// For Recent Activity (Managers/Admins)
 interface RecentActivityItem {
-  id: string; // task id
+  id: string; 
   title: string;
   status: string;
   updatedAt: Date;
@@ -171,7 +174,7 @@ async function getRecentActivities(): Promise<RecentActivityItem[]> {
       title: row.title,
       status: row.status,
       updatedAt: new Date(row.updatedAt),
-      assignedToName: row.assignedToName || row.assignedToUsername || 'Unassigned',
+      assignedToName: row.assignedToName || row.assignedToUsername || 'Tidak Ditugaskan',
       icon: ListChecks, 
     }));
   } catch (error) {
@@ -185,7 +188,7 @@ export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
 
   if (!session || !session.user) {
-    return <p>Access Denied. Please log in.</p>;
+    return <p>Akses Ditolak. Silakan masuk.</p>;
   }
   const currentUser = session.user as SessionUser & { role: UserRole };
   const dashboardStats = await getDashboardStatsForRole(currentUser);
@@ -199,14 +202,14 @@ export default async function DashboardPage() {
   }
 
   const welcomeMessages: Record<UserRole, { title: string, subtitle: string }> = {
-    admin: { title: "Admin Dashboard", subtitle: "Oversee the entire NotaryFlow system." },
-    manager: { title: "Manager Dashboard", subtitle: "Manage your team's tasks and performance." },
-    staff: { title: "Your Dashboard", subtitle: "Here's an overview of your assigned tasks." },
-    cs: { title: "Customer Service Dashboard", subtitle: "Manage client documents, prepare tasks, and oversee archival." },
-    notary: { title: "Notary Dashboard", subtitle: "Track your notarization tasks and schedule." },
+    admin: { title: "Dasbor Admin", subtitle: "Mengawasi seluruh sistem NotaryFlow." },
+    manager: { title: "Dasbor Manajer", subtitle: "Kelola tugas dan kinerja tim Anda." },
+    staff: { title: "Dasbor Anda", subtitle: "Berikut adalah ikhtisar tugas yang diberikan kepada Anda." },
+    cs: { title: "Dasbor Layanan Pelanggan", subtitle: "Kelola dokumen klien, siapkan tugas, dan awasi pengarsipan." },
+    notary: { title: "Dasbor Notaris", subtitle: "Lacak tugas notarisasi dan jadwal Anda." },
   };
 
-  const { title: welcomeTitle, subtitle: welcomeSubtitle } = welcomeMessages[currentUser.role] || { title: "Welcome to NotaryFlow", subtitle: "Here's an overview of your activities." };
+  const { title: welcomeTitle, subtitle: welcomeSubtitle } = welcomeMessages[currentUser.role] || { title: "Selamat Datang di NotaryFlow", subtitle: "Berikut adalah ikhtisar aktivitas Anda." };
 
 
   return (
@@ -221,14 +224,14 @@ export default async function DashboardPage() {
             {(currentUser.role === 'admin' || currentUser.role === 'manager' || currentUser.role === 'cs') && (
                 <Button variant="outline" asChild>
                 <Link href="/documents/new">
-                    <FilePlus className="mr-2 h-4 w-4" /> New Document
+                    <FilePlus className="mr-2 h-4 w-4" /> Dokumen Baru
                 </Link>
                 </Button>
             )}
             {(currentUser.role === 'admin' || currentUser.role === 'manager' || currentUser.role === 'cs') && (
                 <Button asChild>
                 <Link href="/tasks/new">
-                    <ListChecks className="mr-2 h-4 w-4" /> New Task
+                    <ListChecks className="mr-2 h-4 w-4" /> Tugas Baru
                 </Link>
                 </Button>
             )}
@@ -254,8 +257,8 @@ export default async function DashboardPage() {
         <div className="mt-8 grid gap-6 md:grid-cols-2">
           <Card className="shadow-lg">
             <CardHeader>
-              <CardTitle>Workload Distribution</CardTitle>
-              <CardDescription>Active tasks assigned per staff member.</CardDescription>
+              <CardTitle>Distribusi Beban Kerja</CardTitle>
+              <CardDescription>Tugas aktif yang ditugaskan per anggota staf.</CardDescription>
             </CardHeader>
             <CardContent>
               <WorkloadChart data={workloadChartData} />
@@ -264,8 +267,8 @@ export default async function DashboardPage() {
           
           <Card className="shadow-lg">
             <CardHeader>
-              <CardTitle>Recent Task Updates</CardTitle>
-              <CardDescription>Latest task modifications in the system.</CardDescription>
+              <CardTitle>Pembaruan Tugas Terkini</CardTitle>
+              <CardDescription>Modifikasi tugas terbaru dalam sistem.</CardDescription>
             </CardHeader>
             <CardContent>
               {recentActivitiesData.length > 0 ? (
@@ -277,18 +280,18 @@ export default async function DashboardPage() {
                       </div>
                       <div>
                         <p className="text-sm font-medium text-foreground">
-                          Task "<Link href={`/tasks/${activity.id}/edit`} className="hover:underline">{activity.title}</Link>"
-                          <span className="text-muted-foreground"> (Status: {activity.status}) was updated.</span>
+                          Tugas "<Link href={`/tasks/${activity.id}/edit`} className="hover:underline">{activity.title}</Link>"
+                          <span className="text-muted-foreground"> (Status: {activity.status}) telah diperbarui.</span>
                         </p>
                         <p className="text-xs text-muted-foreground">
-                           Assigned to: {activity.assignedToName} &bull; {formatDistanceToNow(activity.updatedAt, { addSuffix: true })}
+                           Ditugaskan kepada: {activity.assignedToName} &bull; {formatDistanceToNow(activity.updatedAt, { addSuffix: true, locale: localeID })}
                         </p>
                       </div>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-muted-foreground">No recent task activities found.</p>
+                <p className="text-sm text-muted-foreground">Tidak ada aktivitas tugas terkini yang ditemukan.</p>
               )}
             </CardContent>
           </Card>
@@ -298,25 +301,25 @@ export default async function DashboardPage() {
          <div className="mt-8">
             <Card className="shadow-lg">
                 <CardHeader>
-                    <CardTitle>Quick Links</CardTitle>
-                    <CardDescription>Frequently accessed actions and information.</CardDescription>
+                    <CardTitle>Tautan Cepat</CardTitle>
+                    <CardDescription>Aksi dan informasi yang sering diakses.</CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
                      {currentUser.role === 'staff' && (
-                        <Button variant="outline" asChild><Link href="/tasks?status=InProgress">View Your In-Progress Tasks</Link></Button>
+                        <Button variant="outline" asChild><Link href="/tasks?status=InProgress">Lihat Tugas "In Progress" Anda</Link></Button>
                      )}
                      {currentUser.role === 'cs' && (
                         <>
-                            <Button variant="outline" asChild><Link href="/tasks?status=ToDo">View Tasks to Prepare</Link></Button>
-                            <Button variant="outline" asChild><Link href="/tasks?status=Approved">View Tasks to Send to Notary</Link></Button>
-                            <Button variant="outline" asChild><Link href="/tasks?status=NotarizationComplete">View Tasks to Archive</Link></Button>
+                            <Button variant="outline" asChild><Link href="/tasks?status=ToDo">Lihat Tugas untuk Disiapkan</Link></Button>
+                            <Button variant="outline" asChild><Link href="/tasks?status=PendingNotarization">Lihat Tugas untuk Persiapan Notaris</Link></Button>
+                            <Button variant="outline" asChild><Link href="/tasks?status=NotarizationComplete">Lihat Tugas untuk Diarsipkan</Link></Button>
                         </>
                      )}
                      {currentUser.role === 'notary' && (
-                        <Button variant="outline" asChild><Link href="/tasks?status=PendingNotarization">View Tasks for Notarization</Link></Button>
+                        <Button variant="outline" asChild><Link href="/tasks?status=ReadyForNotarization">Lihat Tugas untuk Notarisasi</Link></Button>
                      )}
-                    <Button variant="outline" asChild><Link href="/documents">Browse All Documents</Link></Button>
-                    <Button variant="outline" asChild><Link href="/notifications">Check Notifications</Link></Button>
+                    <Button variant="outline" asChild><Link href="/documents">Jelajahi Semua Dokumen</Link></Button>
+                    <Button variant="outline" asChild><Link href="/notifications">Periksa Notifikasi</Link></Button>
                 </CardContent>
             </Card>
          </div>
@@ -324,4 +327,5 @@ export default async function DashboardPage() {
     </div>
   );
 }
+
     

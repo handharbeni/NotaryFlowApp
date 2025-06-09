@@ -21,13 +21,14 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { CalendarIcon, Search, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useEffect } from 'react';
 
-const ANY_PLACEHOLDER = "_ANY_";
+const ANY_PLACEHOLDER_VALUE = "__ANY_VALUE__"; // Changed from empty string
 
 const searchFormSchema = z.object({
   keyword: z.string().optional(),
   documentType: z.string().optional(),
-  status: z.string().optional(), // Keep as string, will match enum values
+  status: z.string().optional(), 
   dateFrom: z.date().optional(),
   dateTo: z.date().optional(),
 }).refine(data => !data.dateFrom || !data.dateTo || data.dateTo >= data.dateFrom, {
@@ -38,36 +39,54 @@ const searchFormSchema = z.object({
 export type SearchFormValues = z.infer<typeof searchFormSchema>;
 
 interface DocumentSearchFormProps {
-  onSearchSubmit: (values: Partial<SearchFormValues>) => void; // Allow partial for undefineds
+  onSearchSubmit: (values: Partial<SearchFormValues>) => void;
+  initialValues?: Partial<SearchFormValues>;
 }
 
-export function DocumentSearchForm({ onSearchSubmit }: DocumentSearchFormProps) {
+export function DocumentSearchForm({ onSearchSubmit, initialValues }: DocumentSearchFormProps) {
   const { toast } = useToast();
   const form = useForm<SearchFormValues>({
     resolver: zodResolver(searchFormSchema),
     defaultValues: {
-      keyword: '',
-      documentType: ANY_PLACEHOLDER,
-      status: ANY_PLACEHOLDER,
-      dateFrom: undefined,
-      dateTo: undefined,
+      keyword: initialValues?.keyword || '',
+      documentType: initialValues?.documentType || ANY_PLACEHOLDER_VALUE,
+      status: initialValues?.status || ANY_PLACEHOLDER_VALUE,
+      dateFrom: initialValues?.dateFrom ? new Date(initialValues.dateFrom) : undefined,
+      dateTo: initialValues?.dateTo ? new Date(initialValues.dateTo) : undefined,
     },
   });
+  
+  useEffect(() => {
+    form.reset({
+      keyword: initialValues?.keyword || '',
+      documentType: initialValues?.documentType || ANY_PLACEHOLDER_VALUE,
+      status: initialValues?.status || ANY_PLACEHOLDER_VALUE,
+      dateFrom: initialValues?.dateFrom ? new Date(initialValues.dateFrom) : undefined,
+      dateTo: initialValues?.dateTo ? new Date(initialValues.dateTo) : undefined,
+    });
+  }, [initialValues, form]);
+
 
   function onSubmit(values: SearchFormValues) {
-    const { documentType, status, ...rest } = values;
-    const cleanedValues: Partial<SearchFormValues> = {
-      ...rest,
-      documentType: documentType === ANY_PLACEHOLDER ? undefined : documentType,
-      status: status === ANY_PLACEHOLDER ? undefined : status,
-    };
+    const cleanedValues: Partial<SearchFormValues> = Object.fromEntries(
+      Object.entries(values).map(([key, value]) => [
+        key,
+        value === ANY_PLACEHOLDER_VALUE || value === '' ? undefined : value,
+      ])
+    );
     onSearchSubmit(cleanedValues);
   }
 
   function handleReset() {
-    const defaultFormValues = { keyword: '', documentType: ANY_PLACEHOLDER, status: ANY_PLACEHOLDER, dateFrom: undefined, dateTo: undefined };
+    const defaultFormValues = { 
+        keyword: '', 
+        documentType: ANY_PLACEHOLDER_VALUE, 
+        status: ANY_PLACEHOLDER_VALUE, 
+        dateFrom: undefined, 
+        dateTo: undefined 
+    };
     form.reset(defaultFormValues);
-    onSearchSubmit({ keyword: '', documentType: undefined, status: undefined, dateFrom: undefined, dateTo: undefined });
+    onSearchSubmit({}); // Submit empty filters to show all
     toast({
       title: 'Filters Reset',
       description: 'Search filters have been cleared.',
@@ -84,7 +103,7 @@ export function DocumentSearchForm({ onSearchSubmit }: DocumentSearchFormProps) 
             <FormItem>
               <FormLabel>Keyword</FormLabel>
               <FormControl>
-                <Input placeholder="Search by name, tag, or content..." {...field} />
+                <Input placeholder="Search by name, tag..." {...field} />
               </FormControl>
             </FormItem>
           )}
@@ -102,14 +121,18 @@ export function DocumentSearchForm({ onSearchSubmit }: DocumentSearchFormProps) 
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  <SelectItem value={ANY_PLACEHOLDER}>Any Type</SelectItem>
-                  <SelectItem value="PDF">PDF</SelectItem>
-                  <SelectItem value="DOCX">DOCX</SelectItem>
-                  <SelectItem value="Agreement">Agreement</SelectItem>
-                  <SelectItem value="Deed">Deed</SelectItem>
-                  <SelectItem value="Affidavit">Affidavit</SelectItem>
-                  <SelectItem value="Will">Will</SelectItem>
-                  <SelectItem value="Other">Other</SelectItem>
+                  <SelectItem value={ANY_PLACEHOLDER_VALUE}>Any Type</SelectItem>
+                  <SelectItem value="application/pdf">PDF</SelectItem>
+                  <SelectItem value="application/vnd.openxmlformats-officedocument.wordprocessingml.document">DOCX</SelectItem>
+                  <SelectItem value="application/msword">DOC</SelectItem>
+                  <SelectItem value="image/jpeg">JPEG Image</SelectItem>
+                  <SelectItem value="image/png">PNG Image</SelectItem>
+                  <SelectItem value="text/plain">Text File</SelectItem>
+                  <SelectItem value="Agreement">Agreement (Custom)</SelectItem>
+                  <SelectItem value="Deed">Deed (Custom)</SelectItem>
+                  <SelectItem value="Affidavit">Affidavit (Custom)</SelectItem>
+                  <SelectItem value="Will">Will (Custom)</SelectItem>
+                  <SelectItem value="Other">Other (Custom)</SelectItem>
                 </SelectContent>
               </Select>
             </FormItem>
@@ -128,7 +151,7 @@ export function DocumentSearchForm({ onSearchSubmit }: DocumentSearchFormProps) 
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  <SelectItem value={ANY_PLACEHOLDER}>Any Status</SelectItem>
+                  <SelectItem value={ANY_PLACEHOLDER_VALUE}>Any Status</SelectItem>
                   <SelectItem value="Draft">Draft</SelectItem>
                   <SelectItem value="Pending Review">Pending Review</SelectItem>
                   <SelectItem value="Notarized">Notarized</SelectItem>

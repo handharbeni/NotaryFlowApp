@@ -2,20 +2,20 @@
 import NextAuth from 'next-auth';
 import type { NextAuthOptions, User as NextAuthUser } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
-import { loginUser } from '@/actions/authActions'; // Your existing login logic
-import type { User } from '@/types'; // Your application's User type
+import { loginUser } from '@/actions/authActions'; 
+import type { User } from '@/types'; 
 
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
       name: 'Credentials',
       credentials: {
-        email: { label: 'Email', type: 'email', placeholder: 'you@example.com' },
-        password: { label: 'Password', type: 'password' },
+        email: { label: 'Email', type: 'email', placeholder: 'anda@contoh.com' },
+        password: { label: 'Kata Sandi', type: 'password' },
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials.password) {
-          throw new Error('Missing email or password.');
+          throw new Error('Email atau kata sandi tidak ada.');
         }
 
         const result = await loginUser({
@@ -24,17 +24,15 @@ export const authOptions: NextAuthOptions = {
         });
 
         if (result.success && result.user) {
-          // Map your user object to what NextAuth expects
-          // Ensure `id` is a string as NextAuth's User type expects it.
           const userForNextAuth: NextAuthUser & { role: string; name?: string | null } = {
-            id: String(result.user.id), // Ensure id is string
+            id: String(result.user.id), 
             email: result.user.email,
             name: result.user.name,
             role: result.user.role,
           };
           return userForNextAuth;
         } else {
-          throw new Error(result.error || 'Invalid credentials.');
+          throw new Error(result.error || 'Kredensial tidak valid.');
         }
       },
     }),
@@ -44,9 +42,7 @@ export const authOptions: NextAuthOptions = {
   },
   callbacks: {
     async jwt({ token, user }) {
-      // When a user signs in (user object is present), add custom properties to the token
       if (user) {
-        // Cast user to include your custom properties
         const appUser = user as User & { role: string; name?: string | null; id: string};
         token.id = appUser.id;
         token.role = appUser.role;
@@ -56,8 +52,6 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async session({ session, token }) {
-      // Add custom properties from the token to the session object
-      // Ensure session.user exists
       if (session.user) {
         session.user.id = token.id as string;
         session.user.role = token.role as string;
@@ -68,12 +62,12 @@ export const authOptions: NextAuthOptions = {
     },
   },
   pages: {
-    signIn: '/', // Your login page path
-    error: '/', // Redirect to login page on error
+    signIn: '/', 
+    error: '/', 
   },
-  secret: process.env.NEXTAUTH_SECRET, // Make sure this is set in .env
+  secret: process.env.NEXTAUTH_SECRET, 
 };
 
-const handler = NextAuth(authOptions); // Corrected line
+const handler = NextAuth(authOptions); 
 
 export { handler as GET, handler as POST };

@@ -12,8 +12,9 @@ export default async function AdminLayout({
   children: ReactNode;
 }) {
   const session = await getServerSession(authOptions);
+  const isAdmin = session?.user?.role?.toLowerCase() === 'admin';
 
-  if (!session || session.user?.role !== 'admin') {
+  if (!session || !isAdmin) {
     // If you want to show a "not authorized" page instead of redirecting to dashboard:
     // return (
     //   <div className="container mx-auto py-8 px-4 md:px-6 flex justify-center items-center min-h-[calc(100vh-theme(spacing.14))]">

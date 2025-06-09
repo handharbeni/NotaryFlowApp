@@ -56,10 +56,10 @@ export function NotificationListClient({ initialNotifications }: NotificationLis
     setIsProcessing(prev => ({ ...prev, [id]: true }));
     const result = await markNotificationAsReadInDB(id);
     if (result.success) {
-      toast({ title: 'Notification Marked as Read' });
+      toast({ title: 'Notifikasi Ditandai Sudah Dibaca' });
       router.refresh(); 
     } else {
-      toast({ title: 'Error', description: result.error || 'Failed to mark as read.', variant: 'destructive' });
+      toast({ title: 'Error', description: result.error || 'Gagal menandai sudah dibaca.', variant: 'destructive' });
     }
     setIsProcessing(prev => ({ ...prev, [id]: false }));
   };
@@ -68,10 +68,10 @@ export function NotificationListClient({ initialNotifications }: NotificationLis
     setIsProcessing(prev => ({ ...prev, [id]: true }));
     const result = await deleteNotificationFromDB(id);
     if (result.success) {
-      toast({ title: 'Notification Deleted' });
+      toast({ title: 'Notifikasi Dihapus' });
       router.refresh();
     } else {
-      toast({ title: 'Error', description: result.error || 'Failed to delete notification.', variant: 'destructive' });
+      toast({ title: 'Error', description: result.error || 'Gagal menghapus notifikasi.', variant: 'destructive' });
     }
     setIsProcessing(prev => ({ ...prev, [id]: false }));
   };
@@ -80,10 +80,10 @@ export function NotificationListClient({ initialNotifications }: NotificationLis
     setIsLoading(true);
     const result = await markAllNotificationsAsReadInDB();
     if (result.success) {
-      toast({ title: `Marked ${result.affectedRows || 0} Notifications as Read` });
+      toast({ title: `Menandai ${result.affectedRows || 0} Notifikasi Sudah Dibaca` });
       router.refresh();
     } else {
-      toast({ title: 'Error', description: result.error || 'Failed to mark all as read.', variant: 'destructive' });
+      toast({ title: 'Error', description: result.error || 'Gagal menandai semua sudah dibaca.', variant: 'destructive' });
     }
     setIsLoading(false);
   };
@@ -93,10 +93,10 @@ export function NotificationListClient({ initialNotifications }: NotificationLis
     setShowClearAllConfirm(false);
     const result = await clearAllNotificationsFromDB();
     if (result.success) {
-      toast({ title: `Cleared ${result.affectedRows || 0} Notifications` });
+      toast({ title: `Menghapus ${result.affectedRows || 0} Notifikasi` });
       router.refresh();
     } else {
-      toast({ title: 'Error', description: result.error || 'Failed to clear all notifications.', variant: 'destructive' });
+      toast({ title: 'Error', description: result.error || 'Gagal menghapus semua notifikasi.', variant: 'destructive' });
     }
     setIsLoading(false);
   };
@@ -127,7 +127,7 @@ export function NotificationListClient({ initialNotifications }: NotificationLis
             <div className="relative md:col-span-1 lg:col-span-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input 
-                placeholder="Search notifications..." 
+                placeholder="Cari notifikasi..." 
                 className="pl-10" 
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -136,10 +136,10 @@ export function NotificationListClient({ initialNotifications }: NotificationLis
             </div>
             <Select value={typeFilter} onValueChange={setTypeFilter} disabled={isLoading}>
               <SelectTrigger>
-                <SelectValue placeholder="Filter by Type" />
+                <SelectValue placeholder="Filter berdasarkan Tipe" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL_TYPES}>All Types</SelectItem>
+                <SelectItem value={ALL_TYPES}>Semua Tipe</SelectItem>
                 {uniqueNotificationTypes.map(type => (
                   <SelectItem key={type} value={type}>{type}</SelectItem>
                 ))}
@@ -147,12 +147,12 @@ export function NotificationListClient({ initialNotifications }: NotificationLis
             </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter} disabled={isLoading}>
               <SelectTrigger>
-                <SelectValue placeholder="Filter by Status" />
+                <SelectValue placeholder="Filter berdasarkan Status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL_STATUSES}>All Statuses</SelectItem>
-                <SelectItem value="unread">Unread</SelectItem>
-                <SelectItem value="read">Read</SelectItem>
+                <SelectItem value={ALL_STATUSES}>Semua Status</SelectItem>
+                <SelectItem value="unread">Belum Dibaca</SelectItem>
+                <SelectItem value="read">Sudah Dibaca</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -162,7 +162,7 @@ export function NotificationListClient({ initialNotifications }: NotificationLis
       {isLoading && (
         <div className="flex justify-center items-center py-10">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="ml-2 text-muted-foreground">Processing...</p>
+            <p className="ml-2 text-muted-foreground">Memproses...</p>
         </div>
       )}
 
@@ -183,10 +183,10 @@ export function NotificationListClient({ initialNotifications }: NotificationLis
           <CardContent className="p-10 text-center">
             <BellRing className="mx-auto h-12 w-12 text-muted-foreground" />
             <h3 className="mt-4 text-xl font-semibold text-foreground">
-              {notifications.length > 0 ? 'No Matching Notifications' : 'No Notifications'}
+              {notifications.length > 0 ? 'Tidak Ada Notifikasi yang Cocok' : 'Tidak Ada Notifikasi'}
             </h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              {notifications.length > 0 ? 'Try adjusting your search or filter criteria.' : "You're all caught up! (Or no notifications in DB)"}
+              {notifications.length > 0 ? 'Coba sesuaikan kriteria pencarian atau filter Anda.' : "Anda sudah terbarui! (Atau tidak ada notifikasi di DB)"}
             </p>
           </CardContent>
         </Card>
@@ -199,7 +199,7 @@ export function NotificationListClient({ initialNotifications }: NotificationLis
             disabled={isLoading || notifications.every(n => n.read) || notifications.length === 0}
         >
           {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCheck className="mr-2 h-4 w-4" />} 
-          Mark all as read
+          Tandai semua sudah dibaca
         </Button>
         <AlertDialog open={showClearAllConfirm} onOpenChange={setShowClearAllConfirm}>
           <AlertDialogTrigger asChild>
@@ -207,21 +207,21 @@ export function NotificationListClient({ initialNotifications }: NotificationLis
                 variant="destructive-outline" 
                 disabled={isLoading || notifications.length === 0}
             >
-              <Trash2 className="mr-2 h-4 w-4" /> Clear all
+              <Trash2 className="mr-2 h-4 w-4" /> Bersihkan semua
             </Button>
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Are you sure you want to clear all notifications?</AlertDialogTitle>
+              <AlertDialogTitle>Apakah Anda yakin ingin membersihkan semua notifikasi?</AlertDialogTitle>
               <AlertDialogDescription>
-                This action cannot be undone and will remove all notifications from your list in the database.
+                Tindakan ini tidak dapat dibatalkan dan akan menghapus semua notifikasi dari daftar Anda di basis data.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => setShowClearAllConfirm(false)} disabled={isLoading}>Cancel</AlertDialogCancel>
+              <AlertDialogCancel onClick={() => setShowClearAllConfirm(false)} disabled={isLoading}>Batal</AlertDialogCancel>
               <AlertDialogAction onClick={handleClearAll} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={isLoading}>
                 {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Clear All Notifications
+                Bersihkan Semua Notifikasi
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -230,5 +230,3 @@ export function NotificationListClient({ initialNotifications }: NotificationLis
     </>
   );
 }
-
-    

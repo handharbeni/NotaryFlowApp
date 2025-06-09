@@ -5,14 +5,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { FileText, Eye, Edit3, Download, Trash2, MoreVertical, Tag, CalendarDays, Info, GitBranch } from 'lucide-react';
+import { FileText, Eye, Edit3, Download, Trash2, MoreVertical, Tag, CalendarDays, Info, GitBranch, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
-import Link from 'next/link'; // Import Link
-import type { Document } from '@/types'; // Import Document type from central location
+import { id as localeID } from 'date-fns/locale';
+import Link from 'next/link'; 
+import type { Document } from '@/types'; 
+import { useState, useEffect } from 'react';
 
 interface DocumentListItemProps {
   document: Document;
-  onDelete: (documentId: string) => void; // Add onDelete prop
+  onDelete: (documentId: string) => void; 
 }
 
 const statusColors: { [key: string]: string } = {
@@ -23,6 +25,14 @@ const statusColors: { [key: string]: string } = {
 };
 
 export function DocumentListItem({ document, onDelete }: DocumentListItemProps) {
+  const [formattedDateUploaded, setFormattedDateUploaded] = useState<string | null>(null);
+  const [formattedLastModified, setFormattedLastModified] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFormattedDateUploaded(format(new Date(document.dateUploaded), 'MMM d, yyyy', { locale: localeID }));
+    setFormattedLastModified(format(new Date(document.lastModified), 'MMM d, yyyy', { locale: localeID }));
+  }, [document.dateUploaded, document.lastModified]);
+
   return (
     <Card className="hover:shadow-md transition-shadow duration-200">
       <CardHeader className="pb-3">
@@ -31,7 +41,7 @@ export function DocumentListItem({ document, onDelete }: DocumentListItemProps) 
             <FileText className="h-6 w-6 text-primary flex-shrink-0" />
             <Link href={`/documents/${document.id}`} passHref legacyBehavior>
               <a className="text-lg leading-tight hover:underline cursor-pointer font-medium text-foreground">
-                <CardTitle className="text-lg leading-tight"> {/* CardTitle expects div, using a for link and styling */}
+                <CardTitle className="text-lg leading-tight"> 
                   {document.name}
                 </CardTitle>
               </a>
@@ -55,7 +65,7 @@ export function DocumentListItem({ document, onDelete }: DocumentListItemProps) 
               <DropdownMenuSeparator />
               <DropdownMenuItem 
                 className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                onClick={() => onDelete(document.id)} // Call onDelete with document id
+                onClick={() => onDelete(document.id)} 
               >
                 <Trash2 className="mr-2 h-4 w-4" />Delete
               </DropdownMenuItem>
@@ -74,9 +84,9 @@ export function DocumentListItem({ document, onDelete }: DocumentListItemProps) 
         </div>
         <div className="flex items-center gap-2">
           <CalendarDays className="h-4 w-4" />
-          <span>Uploaded: {format(new Date(document.dateUploaded), 'MMM d, yyyy')}</span>
+          <span>Uploaded: {formattedDateUploaded || <Loader2 className="h-3 w-3 animate-spin inline-block" />}</span>
           <span className="mx-1">|</span>
-          <span>Modified: {format(new Date(document.lastModified), 'MMM d, yyyy')}</span>
+          <span>Modified: {formattedLastModified || <Loader2 className="h-3 w-3 animate-spin inline-block" />}</span>
         </div>
         <div className="flex items-center gap-2">
           <GitBranch className="h-4 w-4" />

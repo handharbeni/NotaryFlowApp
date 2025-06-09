@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: 'NotaryFlow',
-  description: 'Efficiently track staff workload and securely manage documents for your notary system.',
+  description: 'Lacak beban kerja staf secara efisien dan kelola dokumen dengan aman untuk sistem notaris Anda.',
 };
 
 export default function RootLayout({
@@ -27,7 +27,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning={true}>
+    <html lang="id" suppressHydrationWarning={true}>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning={true}>
         <Providers>
           {children}

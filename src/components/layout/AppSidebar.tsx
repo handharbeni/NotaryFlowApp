@@ -11,7 +11,7 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
-  SidebarMenuBadge, 
+  SidebarMenuBadge,
   SidebarTrigger,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
@@ -20,16 +20,19 @@ import {
   FileText,
   Home,
   Bell,
-  Lightbulb,
   Settings,
   Users,
-  Briefcase, 
-  ListChecks, 
+  Briefcase,
+  ListChecks,
   HelpCircle,
+  Activity,
+  ArchiveIcon,
+  SearchCheck,
+  PackageSearch, 
 } from 'lucide-react';
 import { useSidebar } from '@/components/ui/sidebar';
-import { useSession } from 'next-auth/react'; 
-import { cn } from '@/lib/utils'; 
+import { useSession } from 'next-auth/react';
+import { cn } from '@/lib/utils';
 
 interface AppSidebarProps {
   notificationCount: number;
@@ -37,33 +40,61 @@ interface AppSidebarProps {
 }
 
 const navItemsConfig = [
-  { href: '/dashboard', icon: Home, label: 'Dashboard', badgeKey: 'dashboardCount' as const },
-  { href: '/documents', icon: Briefcase, label: 'Documents' },
-  { href: '/tasks', icon: ListChecks, label: 'Tasks', badgeKey: 'taskCount' as const },
-  { href: '/documents/keyword-suggestion', icon: Lightbulb, label: 'AI Keywords' },
-  { href: '/notifications', icon: Bell, label: 'Notifications', badgeKey: 'notificationCount' as const },
+  { href: '/dashboard', icon: Home, label: 'Dasbor', badgeKey: 'dashboardCount' as const },
+  { href: '/documents', icon: Briefcase, label: 'Dokumen' },
+  { href: '/tasks', icon: ListChecks, label: 'Tugas', badgeKey: 'taskCount' as const },
+  { href: '/reports/income', icon: Activity, label: 'Laporan Aktivitas' },
+  { href: '/archive', icon: ArchiveIcon, label: 'Arsip', roles: ['admin', 'manager', 'cs', 'notary'] },
+  { href: '/track-task', icon: SearchCheck, label: 'Lacak Progres Tugas' },
+  { href: '/notifications', icon: Bell, label: 'Notifikasi', badgeKey: 'notificationCount' as const },
 ];
 
 const adminNavItems = [
- { href: '/admin/users', icon: Users, label: 'User Management' },
- // { href: '/admin/settings', icon: Settings, label: 'System Settings' }, // Keep for future
+ { href: '/admin/users', icon: Users, label: 'Manajemen Pengguna' },
+ // Updated path for Document Requests
+ { href: '/document-management/requests', icon: PackageSearch, label: 'Permintaan Dokumen', roles: ['admin', 'cs'] },
+];
+
+const utilityNavItems = [
+  { href: '/settings', icon: Settings, label: 'Pengaturan'},
+  { href: '/help', icon: HelpCircle, label: 'Bantuan & Dukungan' },
 ];
 
 export function AppSidebar({ notificationCount, taskCount }: AppSidebarProps) {
   const pathname = usePathname();
-  const { state: sidebarState } = useSidebar(); 
-  const { data: session } = useSession(); 
+  const { state: sidebarState } = useSidebar();
+  const { data: session } = useSession();
 
-  const userRole = session?.user?.role;
+  const userRole = session?.user?.role?.toLowerCase(); // Use toLowerCase for consistent role checking
   const isSidebarExpanded = sidebarState === 'expanded';
 
   const getBadgeCount = (badgeKey?: 'notificationCount' | 'taskCount' | 'dashboardCount') => {
     if (!badgeKey) return 0;
     if (badgeKey === 'notificationCount') return notificationCount;
     if (badgeKey === 'taskCount') return taskCount;
-    // Add logic for dashboardCount if/when it becomes dynamic
-    return 0; 
+    return 0;
   };
+
+  const mainNavItems = navItemsConfig.filter(item => {
+    if (item.href.startsWith('/reports')) {
+      return userRole === 'admin' || userRole === 'manager';
+    }
+    if (item.roles && userRole) {
+        return item.roles.includes(userRole);
+    }
+    if (item.roles && !userRole && item.href !== '/track-task') return false;
+    if (item.href === '/track-task') return true; 
+    return !item.roles; 
+  });
+  
+  const filteredAdminNavItems = adminNavItems.filter(item => {
+    if (!userRole) return false; 
+    if (item.roles) {
+        return item.roles.includes(userRole);
+    }
+    return userRole === 'admin'; 
+  });
+
 
   return (
     <Sidebar side="left" variant="sidebar" collapsible="icon">
@@ -73,7 +104,7 @@ export function AppSidebar({ notificationCount, taskCount }: AppSidebarProps) {
             <Button
               variant="ghost"
               className="h-10 w-10 p-0 text-primary hover:bg-primary/10"
-              aria-label="NotaryFlow Home"
+              aria-label="Beranda NotaryFlow"
             >
               <FileText className="h-6 w-6" />
             </Button>
@@ -87,13 +118,13 @@ export function AppSidebar({ notificationCount, taskCount }: AppSidebarProps) {
 
       <SidebarContent className="flex-1 overflow-y-auto">
         <SidebarMenu>
-          {navItemsConfig.map((item) => {
+          {mainNavItems.map((item) => {
             const badgeCount = getBadgeCount(item.badgeKey);
             return (
               <SidebarMenuItem key={item.label}>
                 <Link href={item.href} legacyBehavior passHref>
                   <SidebarMenuButton
-                    isActive={pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))}
+                    isActive={pathname === item.href || (item.href !== '/dashboard' && item.href !== '/track-task' && pathname.startsWith(item.href)) || (item.href === '/track-task' && pathname === '/track-task')}
                     tooltip={{ children: item.label, hidden: isSidebarExpanded }}
                     className="justify-start"
                   >
@@ -109,17 +140,17 @@ export function AppSidebar({ notificationCount, taskCount }: AppSidebarProps) {
           })}
         </SidebarMenu>
 
-        {userRole === 'admin' && (
+        {filteredAdminNavItems.length > 0 && (
           <>
             <Separator className="my-4" />
             <SidebarMenu>
               <SidebarMenuItem className={cn(
                 "px-3 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider",
-                !isSidebarExpanded && "text-center" 
+                !isSidebarExpanded && "text-center"
               )}>
-                {isSidebarExpanded ? 'Admin Tools' : <Users className="h-5 w-5 mx-auto"/>}
+                {isSidebarExpanded ? 'Alat Admin' : <Users className="h-5 w-5 mx-auto"/>}
               </SidebarMenuItem>
-              {adminNavItems.map((item) => (
+              {filteredAdminNavItems.map((item) => (
                 <SidebarMenuItem key={item.label}>
                   <Link href={item.href} legacyBehavior passHref>
                     <SidebarMenuButton
@@ -139,16 +170,22 @@ export function AppSidebar({ notificationCount, taskCount }: AppSidebarProps) {
       </SidebarContent>
 
       <SidebarFooter className="mt-auto border-t border-sidebar-border p-2">
-        <Link href="/help" legacyBehavior passHref>
-          <SidebarMenuButton 
-            variant="ghost" 
-            className="w-full justify-start"
-            tooltip={{ children: "Help & Support", hidden: isSidebarExpanded }}
-          >
-            <HelpCircle className="h-5 w-5" />
-            <span className={!isSidebarExpanded ? 'sr-only' : ''}>Help & Support</span>
-          </SidebarMenuButton>
-        </Link>
+        <SidebarMenu>
+          {utilityNavItems.map((item) => (
+             <SidebarMenuItem key={item.label}>
+             <Link href={item.href} legacyBehavior passHref>
+               <SidebarMenuButton
+                 isActive={pathname.startsWith(item.href)}
+                 tooltip={{ children: item.label, hidden: isSidebarExpanded }}
+                 className="justify-start"
+               >
+                 <item.icon className="h-5 w-5" />
+                 <span className={!isSidebarExpanded ? 'sr-only' : ''}>{item.label}</span>
+               </SidebarMenuButton>
+             </Link>
+           </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
   );

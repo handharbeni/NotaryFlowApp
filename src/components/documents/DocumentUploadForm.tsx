@@ -1,3 +1,4 @@
+
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -18,15 +19,16 @@ import { UploadCloud, FileCheck } from 'lucide-react';
 import { useState, type ChangeEvent } from 'react';
 import { Progress } from '@/components/ui/progress';
 import type { Document } from '@/types';
-import { uploadDocumentAndCreateRecord, type UploadDocumentResult } from '@/actions/documentActions'; // Import Server Action
-import { useToast } from '@/hooks/use-toast'; // For displaying results
+import { uploadDocumentAndCreateRecord, type UploadDocumentResult } from '@/actions/documentActions';
+import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react'; // Added for getting uploaderId
 
 
-const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB (adjust as needed for OwnCloud/server limits)
+const MAX_FILE_SIZE = 15 * 1024 * 1024; 
 const ACCEPTED_FILE_TYPES = [
-    'application/pdf', 
-    'application/msword', 
+    'application/pdf',
+    'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'image/jpeg',
     'image/png',
@@ -34,7 +36,7 @@ const ACCEPTED_FILE_TYPES = [
 ];
 
 const uploadFormSchema = z.object({
-  documentFile: z.custom<FileList>() // Use FileList for input type="file"
+  documentFile: z.custom<FileList>()
     .refine(files => files && files.length > 0, "File is required.")
     .refine(files => files && files[0].size <= MAX_FILE_SIZE, `Max file size is ${MAX_FILE_SIZE / (1024*1024)}MB.`)
     .refine(
@@ -43,18 +45,21 @@ const uploadFormSchema = z.object({
     ),
   documentName: z.string().optional().default(''),
   documentType: z.string().optional().default(''),
+  initialLocation: z.string().optional().default('Kantor CS - Area Penyimpanan Umum'), // Added
 });
 
 type UploadFormValues = z.infer<typeof uploadFormSchema>;
 
 interface DocumentUploadFormProps {
-  onUploadComplete?: (result: UploadDocumentResult) => void; // Callback for parent
-  onUploadSuccessInContext?: (document: Document) => void; // Callback for specific context like TaskForm
+  onUploadComplete?: (result: UploadDocumentResult) => void;
+  onUploadSuccessInContext?: (document: Document) => void;
+  uploaderId?: string; // Optional: can be passed if known, otherwise fetched from session
 }
 
-export function DocumentUploadForm({ onUploadComplete, onUploadSuccessInContext }: DocumentUploadFormProps) {
+export function DocumentUploadForm({ onUploadComplete, onUploadSuccessInContext, uploaderId: uploaderIdProp }: DocumentUploadFormProps) {
   const { toast } = useToast();
   const router = useRouter();
+  const { data: session } = useSession(); // Get session data
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileNameDisplay, setFileNameDisplay] = useState<string>('');
   const [uploadProgress, setUploadProgress] = useState<number>(0);
@@ -65,6 +70,7 @@ export function DocumentUploadForm({ onUploadComplete, onUploadSuccessInContext 
     defaultValues: {
         documentName: '',
         documentType: '',
+        initialLocation: 'Kantor CS - Area Penyimpanan Umum',
     }
   });
 
@@ -74,7 +80,7 @@ export function DocumentUploadForm({ onUploadComplete, onUploadSuccessInContext 
       setSelectedFile(file);
       setFileNameDisplay(file.name);
       form.setValue('documentFile', event.target.files as FileList);
-      form.trigger('documentFile'); 
+      form.trigger('documentFile');
     } else {
       setSelectedFile(null);
       setFileNameDisplay('');
@@ -87,9 +93,15 @@ export function DocumentUploadForm({ onUploadComplete, onUploadSuccessInContext 
       toast({ title: "Error", description: "Please select a file.", variant: "destructive"});
       return;
     }
-    
+
+    const finalUploaderId = uploaderIdProp || session?.user?.id;
+    if (!finalUploaderId) {
+      toast({ title: "Error", description: "User not authenticated. Cannot determine uploader.", variant: "destructive"});
+      return;
+    }
+
     setIsUploading(true);
-    setUploadProgress(30); 
+    setUploadProgress(10); 
 
     const formData = new FormData();
     formData.append('documentFile', values.documentFile[0]);
@@ -99,35 +111,49 @@ export function DocumentUploadForm({ onUploadComplete, onUploadSuccessInContext 
     if (values.documentType) {
         formData.append('documentType', values.documentType);
     }
+    // Note: initialLocation will be passed directly to the server action, not via FormData
     
-    const result = await uploadDocumentAndCreateRecord(formData);
-    setUploadProgress(100);
+    setUploadProgress(30); 
 
-    if (result.success && result.document) {
-      toast({
-        title: 'Document Uploaded',
-        description: `${result.document.name} has been processed.`,
-      });
-      if (onUploadSuccessInContext) {
-        onUploadSuccessInContext(result.document);
-      } else if (onUploadComplete) {
-        onUploadComplete(result);
+    try {
+      setUploadProgress(60); 
+      const result = await uploadDocumentAndCreateRecord(formData, finalUploaderId, values.initialLocation);
+      
+      if (result.success && result.document) {
+        setUploadProgress(100);
+        toast({
+          title: 'Document Uploaded',
+          description: `${result.document.name} has been processed.`,
+        });
+        if (onUploadSuccessInContext) {
+          onUploadSuccessInContext(result.document);
+        } else if (onUploadComplete) {
+          onUploadComplete(result);
+        } else {
+          router.push('/documents');
+        }
       } else {
-        router.push('/documents'); 
+        toast({
+          title: 'Upload Failed',
+          description: result.error || 'An unexpected error occurred on the server.',
+          variant: 'destructive',
+        });
       }
-    } else {
+    } catch (error: any) {
       toast({
-        title: 'Upload Failed',
-        description: result.error || 'An unexpected error occurred.',
+        title: 'Upload Error',
+        description: error.message || 'A client-side error occurred during upload. Please try again.',
         variant: 'destructive',
       });
+    } finally {
+      setIsUploading(false);
+      setSelectedFile(null);
+      setFileNameDisplay('');
+      form.reset();
+      if (uploadProgress !== 100) {
+          setUploadProgress(0);
+      }
     }
-    
-    setIsUploading(false);
-    setSelectedFile(null);
-    setFileNameDisplay('');
-    form.reset(); 
-    setUploadProgress(0);
   }
 
   return (
@@ -154,9 +180,23 @@ export function DocumentUploadForm({ onUploadComplete, onUploadSuccessInContext 
             <FormItem>
               <FormLabel>Document Category/Type (Optional)</FormLabel>
               <FormControl>
-                <Input placeholder="e.g., Legal Agreement, Invoice, Identification" {...field} disabled={isUploading} />
+                <Input placeholder="e.g., Legal Agreement, Invoice" {...field} disabled={isUploading} />
               </FormControl>
-              <FormDescription>Helps in organizing documents. Examples: Invoice, Agreement, Report.</FormDescription>
+              <FormDescription>Helps in organizing documents.</FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="initialLocation"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Initial Physical Location</FormLabel>
+              <FormControl>
+                <Input placeholder="e.g., CS Rack A-1, Uploader's Desk" {...field} disabled={isUploading} />
+              </FormControl>
+              <FormDescription>Where the physical original will be stored initially.</FormDescription>
               <FormMessage />
             </FormItem>
           )}
@@ -164,17 +204,17 @@ export function DocumentUploadForm({ onUploadComplete, onUploadSuccessInContext 
         <FormField
           control={form.control}
           name="documentFile"
-          render={({ field }) => ( 
+          render={({ field }) => (
             <FormItem>
               <FormLabel>Select Document</FormLabel>
               <FormControl>
                 <div className="relative">
                   <Input
                     type="file"
-                    id="documentFile-input" 
+                    id="documentFile-input"
                     accept={ACCEPTED_FILE_TYPES.join(',')}
                     onChange={handleFileChange}
-                    className="hidden" 
+                    className="hidden"
                     disabled={isUploading}
                   />
                   <label
@@ -192,8 +232,8 @@ export function DocumentUploadForm({ onUploadComplete, onUploadSuccessInContext 
                     ) : (
                       <div className="flex flex-col items-center text-sm text-muted-foreground text-center">
                         <UploadCloud className="w-10 h-10 mb-2" />
-                        <span>Click to browse or drag & drop</span>
-                        <span className="text-xs mt-1">PDF, DOC(X), JPG, PNG, TXT (Max {MAX_FILE_SIZE / (1024*1024)}MB)</span>
+                        <span>Click to browse or drag &amp; drop</span>
+                        <span className="text-xs mt-1">PDF, DOC(X), JPG, PNG, TXT (Max ${MAX_FILE_SIZE / (1024*1024)}MB)</span>
                       </div>
                     )}
                   </label>

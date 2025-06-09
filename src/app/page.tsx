@@ -1,6 +1,8 @@
+
 import { LoginForm } from '@/components/auth/login-form';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { FileText } from 'lucide-react';
+import { FileText, SearchCheck } from 'lucide-react';
+import Link from 'next/link';
 import { Suspense } from 'react';
 
 export default function LoginPage() {
@@ -13,17 +15,23 @@ export default function LoginPage() {
           </div>
           <CardTitle className="text-3xl font-bold tracking-tight">NotaryFlow</CardTitle>
           <CardDescription className="text-muted-foreground">
-            Sign in to manage your notary tasks and documents.
+            Masuk untuk mengelola tugas dan dokumen notaris Anda.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Suspense fallback={<div className="flex justify-center items-center py-6">Loading...</div>}>
+          <Suspense fallback={<div className="flex justify-center p-4">Loading...</div>}>
             <LoginForm />
           </Suspense>
         </CardContent>
       </Card>
+      <div className="mt-6 text-center">
+        <Link href="/track-task" className="text-sm text-primary hover:underline hover:text-primary/90 flex items-center justify-center gap-1">
+            <SearchCheck className="h-4 w-4" />
+            Lacak Progres Tugas Secara Publik
+        </Link>
+      </div>
       <footer className="mt-8 text-center text-sm text-muted-foreground">
-        <p>&copy; {new Date().getFullYear()} NotaryFlow. All rights reserved.</p>
+        <p>&copy; {new Date().getFullYear()} NotaryFlow. Hak cipta dilindungi.</p>
       </footer>
     </main>
   );

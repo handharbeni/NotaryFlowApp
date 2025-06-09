@@ -7,12 +7,15 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
+import { id as localeID } from 'date-fns/locale';
 import { Check, Eye, Trash2, AlertTriangle, Info, Bell, Loader2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useToast } from '@/hooks/use-toast';
 
 interface NotificationItemProps {
   notification: Notification;
-  onMarkAsRead: (id: string) => Promise<void>; // Now async
-  onDelete: (id: string) => Promise<void>; // Now async
+  onMarkAsRead: (id: string) => Promise<void>; 
+  onDelete: (id: string) => Promise<void>; 
   isProcessing?: boolean;
 }
 
@@ -29,7 +32,23 @@ const priorityIcon: Record<Notification['priority'], JSX.Element> = {
 }
 
 export function NotificationItem({ notification, onMarkAsRead, onDelete, isProcessing }: NotificationItemProps) {
-  const timeAgo = formatDistanceToNow(new Date(notification.date), { addSuffix: true });
+  const timeAgo = formatDistanceToNow(new Date(notification.date), { addSuffix: true, locale: localeID });
+  const router = useRouter();
+  const { toast } = useToast();
+
+  const handleViewDetails = () => {
+    if (notification.relatedTaskId) {
+      router.push(`/tasks/${notification.relatedTaskId}/edit`);
+    } else if (notification.relatedDocumentId) {
+      router.push(`/documents/${notification.relatedDocumentId}`);
+    } else {
+      toast({
+        title: 'No Detail Page',
+        description: 'This notification does not have a specific detail page linked.',
+        variant: 'default',
+      });
+    }
+  };
 
   return (
     <Card className={cn(
@@ -43,7 +62,7 @@ export function NotificationItem({ notification, onMarkAsRead, onDelete, isProce
             {notification.priority && priorityIcon[notification.priority]}
             <CardTitle className="text-lg">{notification.title}</CardTitle>
           </div>
-          {!notification.read && <Badge variant="default" className="bg-accent text-accent-foreground">New</Badge>}
+          {!notification.read && <Badge variant="default" className="bg-accent text-accent-foreground">Baru</Badge>}
         </div>
         <CardDescription className="text-xs text-muted-foreground">
           {notification.type} &bull; <span suppressHydrationWarning>{timeAgo}</span>
@@ -53,23 +72,20 @@ export function NotificationItem({ notification, onMarkAsRead, onDelete, isProce
         <p className="text-sm text-foreground">{notification.description}</p>
       </CardContent>
       <CardFooter className="flex justify-end gap-2 pt-3">
-        {/* In a real app, this button might trigger actions like navigation based on relatedTaskId/DocumentId */}
-        <Button variant="outline" size="sm" onClick={() => console.log('View notification details:', notification.id)} disabled={isProcessing}>
-          <Eye className="mr-2 h-4 w-4" /> View Details
+        <Button variant="outline" size="sm" onClick={handleViewDetails} disabled={isProcessing}>
+          <Eye className="mr-2 h-4 w-4" /> Lihat Detail
         </Button>
         {!notification.read && (
           <Button variant="default" size="sm" onClick={() => onMarkAsRead(notification.id)} disabled={isProcessing}>
             {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />} 
-            Mark as Read
+            Tandai Sudah Dibaca
           </Button>
         )}
         <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" onClick={() => onDelete(notification.id)} disabled={isProcessing}>
           {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-          <span className="sr-only">Delete</span>
+          <span className="sr-only">Hapus</span>
         </Button>
       </CardFooter>
     </Card>
   );
 }
-
-    

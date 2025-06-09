@@ -1,65 +1,39 @@
 
-// Removed 'use client'; to make it a Server Component by default
-
-import type { Document } from '@/types';
+import type { PaginatedDocumentsResponse } from '@/types';
 import { Button } from '@/components/ui/button';
 import { FilePlus, FileText } from 'lucide-react';
 import Link from 'next/link';
-import pool from '@/lib/db'; // Import the database pool
-import { DocumentListClient } from '@/components/documents/DocumentListClient'; // Import the new client component
+import { DocumentListClient } from '@/components/documents/DocumentListClient';
+import { fetchPaginatedDocuments } from '@/actions/documentActions';
 
-// Helper function to safely parse JSON strings (like tags) from the database
-function parseJsonStringSafe(jsonString: string | null | undefined): string[] | undefined {
-  if (!jsonString) return undefined;
-  try {
-    const parsed = JSON.parse(jsonString);
-    // Ensure it's an array of strings, or return undefined
-    if (Array.isArray(parsed) && parsed.every(item => typeof item === 'string')) {
-      return parsed;
-    }
-    // If it parsed but isn't an array of strings, maybe it's a single tag stringified
-    if (typeof parsed === 'string') return [parsed]; 
-    return undefined;
-  } catch (error) {
-    // If JSON parsing fails, and it's a string, try to split by comma as a fallback for non-JSON tags
-    if (typeof jsonString === 'string') {
-        const tags = jsonString.split(',').map(tag => tag.trim()).filter(tag => tag);
-        return tags.length > 0 ? tags : undefined;
-    }
-    console.warn('Failed to parse tags from DB:', jsonString, error);
-    return undefined;
-  }
-}
+const ITEMS_PER_PAGE = 10; // Define how many items per page
 
+export default async function DocumentsPage({
+  searchParams,
+}: {
+  searchParams?: {
+    page?: string;
+    keyword?: string;
+    documentType?: string;
+    status?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  };
+}) {
+  const currentPage = Number(searchParams?.page) || 1;
+  const filters = {
+    keyword: searchParams?.keyword,
+    documentType: searchParams?.documentType,
+    status: searchParams?.status,
+    dateFrom: searchParams?.dateFrom,
+    dateTo: searchParams?.dateTo,
+  };
 
-async function fetchDocumentsFromDB(): Promise<Document[]> {
-  try {
-    // Ensure your 'documents' table and columns match this query
-    const [rows] = await pool.query('SELECT id, name, type, status, dateUploaded, lastModified, fileSize, version, tags, contentPreview, ownCloudPath FROM documents ORDER BY dateUploaded DESC');
-    
-    return (rows as any[]).map(row => ({
-      id: row.id,
-      name: row.name,
-      type: row.type,
-      status: row.status as Document['status'], // Ensure this matches the enum in your types/Document
-      dateUploaded: new Date(row.dateUploaded),
-      lastModified: new Date(row.lastModified),
-      fileSize: row.fileSize || 'N/A',
-      version: row.version || 1,
-      tags: parseJsonStringSafe(row.tags), // Parse tags safely
-      contentPreview: row.contentPreview || undefined,
-      ownCloudPath: row.ownCloudPath || undefined,
-    }));
-  } catch (error) {
-    console.error("Failed to fetch documents from DB:", error);
-    // Depending on how you want to handle DB errors, you might throw or return empty
-    return []; 
-  }
-}
-
-
-export default async function DocumentsPage() {
-  const documentsFromDB = await fetchDocumentsFromDB();
+  const paginatedData: PaginatedDocumentsResponse = await fetchPaginatedDocuments({
+    page: currentPage,
+    limit: ITEMS_PER_PAGE,
+    ...filters,
+  });
 
   return (
     <div className="container mx-auto px-4 md:px-6 py-6">
@@ -80,7 +54,11 @@ export default async function DocumentsPage() {
         </p>
       </header>
 
-      <DocumentListClient initialDocuments={documentsFromDB} />
+      <DocumentListClient
+        initialPaginatedData={paginatedData}
+        itemsPerPage={ITEMS_PER_PAGE}
+        initialFilters={filters}
+      />
       
     </div>
   );

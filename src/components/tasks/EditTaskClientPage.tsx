@@ -8,7 +8,7 @@ import { TaskForm, type TaskFormValues } from '@/components/tasks/TaskForm';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, GitMerge, PlusCircle, Trash2, Edit3, FileText, FolderOpen, Send, CheckCircle, Archive, AlertCircle, ThumbsDown } from 'lucide-react';
+import { Loader2, GitMerge, PlusCircle, Trash2, Edit3, FileText, FolderOpen, Send, CheckCircle, Archive, AlertCircle, ThumbsDown, FileSignature, Undo2, Download } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { 
@@ -19,8 +19,10 @@ import {
   approveTaskAction,
   requestChangesTaskAction,
   sendToNotaryAction,
+  markReadyForNotarizationAction, 
   completeNotarizationAction,
   archiveTaskAction,
+  revertTaskToPendingNotarizationAction,
 } from '@/actions/taskActions';
 import {
   Dialog,
@@ -41,6 +43,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Separator } from '@/components/ui/separator';
 import { useSession } from 'next-auth/react';
+import { downloadDocumentData } from '@/actions/documentActions';
+import { triggerBrowserDownload } from '@/lib/downloadUtils';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 
 interface BasicDocumentInfo {
@@ -51,17 +56,14 @@ interface BasicDocumentInfo {
 
 interface ParentTaskDocumentDetails {
   title: string;
-  primaryDocument: Task['primaryDocument'] | null;
-  supportingDocuments: Task['supportingDocuments'] | null;
+  documents: Task['documents'] | null;
 }
 
 interface EditTaskClientPageProps {
   initialTask: Task | null;
   initialSubtasks: Task[];
   allAvailableDocuments: BasicDocumentInfo[];
-  parentTaskDocumentDetails?: ParentTaskDocumentDetails | null; // For when initialTask is a subtask
-  globallyUsedPrimaryDocIds: string[];
-  globallyUsedSupportingDocIds: string[];
+  parentTaskDocumentDetails?: ParentTaskDocumentDetails | null; 
   allUsers: Pick<User, 'id' | 'username' | 'email' | 'role' | 'name' | 'createdAt'>[];
 }
 
@@ -69,9 +71,7 @@ export function EditTaskClientPage({
   initialTask, 
   initialSubtasks, 
   allAvailableDocuments, 
-  parentTaskDocumentDetails, // This is for the parent of initialTask (if initialTask is a subtask)
-  globallyUsedPrimaryDocIds,
-  globallyUsedSupportingDocIds,
+  parentTaskDocumentDetails, 
   allUsers
 }: EditTaskClientPageProps) {
   const router = useRouter();
@@ -90,6 +90,7 @@ export function EditTaskClientPage({
 
   const [isSubmittingForm, setIsSubmittingForm] = useState(false);
   const [isProcessingAction, setIsProcessingAction] = useState(false);
+  const [downloadingDocId, setDownloadingDocId] = useState<string | null>(null);
 
 
   useEffect(() => {
@@ -97,34 +98,45 @@ export function EditTaskClientPage({
     setSubtasks(initialSubtasks.map(st => ({...st, dueDate: new Date(st.dueDate)})));
   }, [initialTask, initialSubtasks]);
 
-  const isMainFormReadOnly = useCallback(() => {
+  const isTaskFormReadOnly = useCallback(() => {
     if (!task || !currentUserRole || !currentUserId) return true;
+    if (task.status === 'Archived') return true; 
     if (currentUserRole === 'admin') return false;
 
-    switch (currentUserRole) {
-      case 'staff':
-        return !(task.assignedTo === currentUserId && (task.status === 'To Do' || task.status === 'In Progress'));
-      case 'manager':
-        // Managers can edit tasks in these states, e.g., to assign or update details before approval
-        return !(['To Do', 'In Progress', 'Pending Review', 'Approved'].includes(task.status));
-      case 'cs':
-        // CS can edit tasks they are preparing ('To Do' and assigned to them or unassigned)
-        // Once submitted or in other states, form is read-only for them; actions are via buttons.
-        return !(task.status === 'To Do' && (task.assignedTo === currentUserId || !task.assignedTo));
-      case 'notary':
-        // Notaries generally don't edit task details; actions are via buttons.
-        return true; 
-      default:
-        return true;
+    if (task.parentId) { // Current task IS a subtask
+        switch (currentUserRole) {
+            case 'staff':
+                return !(task.assignedTo === currentUserId && (task.status === 'To Do' || task.status === 'In Progress'));
+            case 'cs':
+                 return !( (task.status === 'To Do' && (task.assignedTo === currentUserId || !task.assignedTo)) );
+            case 'manager':
+                return !(task.status === 'Pending Review');
+            default: return true;
+        }
+    } else { // Current task is a PARENT task
+        switch (currentUserRole) {
+            case 'staff':
+              return !(task.assignedTo === currentUserId && (task.status === 'To Do' || task.status === 'In Progress'));
+            case 'manager':
+              return !(['To Do', 'In Progress', 'Pending Review', 'Approved', 'Pending Notarization'].includes(task.status));
+            case 'cs':
+              return !(
+                (task.status === 'To Do' && (task.assignedTo === currentUserId || !task.assignedTo)) ||
+                (task.status === 'Pending Notarization' && (task.assignedTo === currentUserId || !task.assignedTo))
+              );
+            case 'notary':
+              return true; 
+            default:
+              return true;
+          }
     }
   }, [task, currentUserRole, currentUserId]);
   
   const canCurrentUserAddSubtask = () => {
       if (!currentUserRole || !task) return false;
-      // Only Admin and Manager can add subtasks
+      if (task.status === 'Archived' || task.parentId) return false; 
       if (currentUserRole === 'admin' || currentUserRole === 'manager') {
-         // And only if the parent task is in a state where subtasks make sense
-         const modifiableParentStatuses: Task['status'][] = ['To Do', 'In Progress', 'Pending Review', 'Approved'];
+         const modifiableParentStatuses: Task['status'][] = ['To Do', 'In Progress', 'Pending Review', 'Approved', 'Pending Notarization'];
          return modifiableParentStatuses.includes(task.status);
       }
       return false;
@@ -132,16 +144,20 @@ export function EditTaskClientPage({
 
   const canCurrentUserEditSubtask = (subtask: Task) => {
     if (!currentUserRole || !currentUserId) return false;
+    if (subtask.status === 'Archived') return false; 
     if (currentUserRole === 'admin' || currentUserRole === 'manager') return true; 
     if (currentUserRole === 'staff' && subtask.assignedTo === currentUserId) {
         return subtask.status === 'To Do' || subtask.status === 'In Progress';
+    }
+    if (currentUserRole === 'cs' && (subtask.assignedTo === currentUserId || !subtask.assignedTo)) {
+        return subtask.status === 'To Do'; 
     }
     return false;
   };
 
   const canCurrentUserDeleteSubtask = (subtask: Task) => {
     if (!currentUserRole) return false;
-    // Only Admin and Manager can delete subtasks
+    if (subtask.status === 'Archived') return false; 
     return currentUserRole === 'admin' || currentUserRole === 'manager';
   };
 
@@ -153,14 +169,14 @@ export function EditTaskClientPage({
 
     if (result.success) {
       toast({
-        title: 'Task Updated',
-        description: `Task "${values.title}" has been successfully updated.`,
+        title: 'Tugas Diperbarui',
+        description: `Tugas "${values.title}" berhasil diperbarui.`,
       });
       router.refresh();
     } else {
       toast({
-        title: 'Error Updating Task',
-        description: result.error || 'An unexpected error occurred.',
+        title: 'Error Memperbarui Tugas',
+        description: result.error || 'Terjadi kesalahan tak terduga.',
         variant: 'destructive',
       });
     }
@@ -174,15 +190,15 @@ export function EditTaskClientPage({
 
     if (result.success && result.subtaskId) {
       toast({
-        title: 'Subtask Created',
-        description: `Subtask "${values.title}" has been successfully created for task "${task.title}".`,
+        title: 'Subtugas Dibuat',
+        description: `Subtugas "${values.title}" berhasil dibuat untuk tugas "${task.title}".`,
       });
       setIsAddSubtaskDialogOpen(false);
       router.refresh();
     } else {
       toast({
-        title: 'Error Creating Subtask',
-        description: result.error || 'An unexpected error occurred.',
+        title: 'Error Membuat Subtugas',
+        description: result.error || 'Terjadi kesalahan tak terduga.',
         variant: 'destructive',
       });
     }
@@ -201,16 +217,16 @@ export function EditTaskClientPage({
 
     if (result.success) {
       toast({
-        title: 'Subtask Updated',
-        description: `Subtask "${values.title}" has been successfully updated.`,
+        title: 'Subtugas Diperbarui',
+        description: `Subtugas "${values.title}" berhasil diperbarui.`,
       });
       setIsEditSubtaskDialogOpen(false);
       setEditingSubtask(null);
       router.refresh();
     } else {
       toast({
-        title: 'Error Updating Subtask',
-        description: result.error || 'An unexpected error occurred.',
+        title: 'Error Memperbarui Subtugas',
+        description: result.error || 'Terjadi kesalahan tak terduga.',
         variant: 'destructive',
       });
     }
@@ -225,15 +241,15 @@ export function EditTaskClientPage({
 
     if (result.success) {
       toast({
-        title: 'Subtask Deleted',
-        description: `Subtask "${subtaskToDelete.title}" has been successfully deleted.`,
+        title: 'Subtugas Dihapus',
+        description: `Subtugas "${subtaskToDelete.title}" berhasil dihapus.`,
       });
        setSubtaskToDelete(null); 
       router.refresh();
     } else {
       toast({
-        title: 'Error Deleting Subtask',
-        description: result.error || 'An unexpected error occurred.',
+        title: 'Error Menghapus Subtugas',
+        description: result.error || 'Terjadi kesalahan tak terduga.',
         variant: 'destructive',
       });
     }
@@ -247,11 +263,31 @@ export function EditTaskClientPage({
     const result = await action();
     setIsProcessingAction(false);
     if (result.success) {
-        toast({ title: "Workflow Action Successful", description: result.message || "Action completed." });
-        router.refresh(); // This re-fetches data for the page, including task and subtasks
+        toast({ title: "Aksi Alur Kerja Berhasil", description: result.message || "Aksi selesai." });
+        router.refresh(); 
     } else {
-        toast({ title: "Workflow Action Failed", description: `${result.error || 'Unknown error'}`, variant: "destructive" });
+        toast({ title: "Aksi Alur Kerja Gagal", description: `${result.error || 'Error tidak diketahui'}`, variant: "destructive" });
     }
+  };
+
+  const handleDownloadDocument = async (docId: string, docName?: string) => {
+    if (!docId) {
+        toast({ title: "Error", description: "ID Dokumen hilang.", variant: "destructive" });
+        return;
+    }
+    setDownloadingDocId(docId);
+    try {
+        const result = await downloadDocumentData(docId);
+        if (result.success && result.data && result.fileName && result.mimeType) {
+            triggerBrowserDownload(result.fileName, result.mimeType, result.data);
+            toast({ title: "Unduhan Dimulai", description: `Mengunduh ${result.fileName}.`});
+        } else {
+            toast({ title: "Gagal Mengunduh", description: result.error || `Tidak dapat mengunduh ${docName || 'file'}.`, variant: "destructive"});
+        }
+    } catch (error: any) {
+        toast({ title: "Kesalahan Unduh", description: error.message || "Terjadi kesalahan tak terduga.", variant: "destructive"});
+    }
+    setDownloadingDocId(null);
   };
 
 
@@ -261,8 +297,9 @@ export function EditTaskClientPage({
       case 'In Progress': return 'secondary';
       case 'Pending Review': return 'default'; 
       case 'Approved': return 'default'; 
-      case 'Pending Notarization': return 'secondary';
-      case 'Notarization Complete': return 'default';
+      case 'Pending Notarization': return 'secondary'; 
+      case 'Ready for Notarization': return 'default'; 
+      case 'Notarization Complete': return 'default'; 
       case 'Archived': return 'outline'; 
       case 'Blocked': return 'destructive';
       default: return 'outline';
@@ -273,68 +310,65 @@ export function EditTaskClientPage({
     return (
       <div className="container mx-auto py-8 px-4 md:px-6 flex justify-center items-center min-h-[300px]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="ml-2 text-muted-foreground">Loading task details...</p>
+        <p className="ml-2 text-muted-foreground">Memuat detail tugas...</p>
       </div>
     );
   }
   
-  const currentReadOnlyState = isMainFormReadOnly();
-
-  // Contextual documents from the parent of the main task (if initialTask is a subtask)
+  const currentReadOnlyState = isTaskFormReadOnly();
   const parentDocsForMainTaskForm = task?.parentId && parentTaskDocumentDetails ? parentTaskDocumentDetails : null;
-
-  // Contextual documents for the subtask edit dialog (documents of 'task', which is the parent of 'editingSubtask')
   const parentDocsForSubtaskDialog: ParentTaskDocumentDetails | null = task ? {
     title: task.title,
-    primaryDocument: task.primaryDocument,
-    supportingDocuments: task.supportingDocuments,
+    documents: task.documents,
   } : null;
+
+  const showWorkflowActions = task && task.status !== 'Archived';
 
 
   return (
     <>
-      {/* Display documents of parent if the main task is a subtask */}
-      {parentDocsForMainTaskForm && (
+      {parentDocsForMainTaskForm && parentDocsForMainTaskForm.documents && (
         <Card className="mb-6 bg-muted/30 border-dashed border-accent shadow-sm">
             <CardHeader className="pb-3">
-                <CardTitle className="text-lg flex items-center gap-2 text-accent">
+                <CardTitle className="text-base flex items-center gap-2 text-accent">
                 <FolderOpen className="h-5 w-5" />
-                Context: Parent Task Documents ({parentDocsForMainTaskForm.title})
+                Konteks: Dokumen Tugas Induk ({parentDocsForMainTaskForm.title})
                 </CardTitle>
                 <CardDescription className="text-xs">
-                These documents are from this task's parent.
+                Dokumen-dokumen ini berasal dari tugas induk dan ditampilkan untuk konteks.
                 </CardDescription>
             </CardHeader>
-            <CardContent className="text-sm space-y-3">
-                {parentDocsForMainTaskForm.primaryDocument ? (
+            <CardContent className="text-sm space-y-3 pt-2">
+                {parentDocsForMainTaskForm.documents.length > 0 ? (
                 <div>
-                    <p className="font-semibold text-foreground">Primary Document:</p>
-                    <div className="flex items-center gap-2 p-2 rounded-md bg-background/70">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    <span>{parentDocsForMainTaskForm.primaryDocument.name}</span>
-                    {parentDocsForMainTaskForm.primaryDocument.type && (
-                        <Badge variant="outline" className="text-xs">{parentDocsForMainTaskForm.primaryDocument.type}</Badge>
-                    )}
-                    </div>
+                    <p className="font-semibold text-foreground mt-2">Dokumen Terlampir pada Induk:</p>
+                    <ScrollArea className="h-24 mt-1">
+                        <ul className="space-y-1 mt-1">
+                        {parentDocsForMainTaskForm.documents.map(doc => (
+                            <li key={doc.id} className="flex items-center gap-2 p-1.5 rounded-md bg-background/70">
+                            <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                            <span className="flex-grow">{doc.name}</span>
+                            {doc.type && <Badge variant="outline" className="text-xs flex-shrink-0">{doc.type}</Badge>}
+                            {doc.ownCloudPath && (
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 ml-1 flex-shrink-0"
+                                    onClick={() => handleDownloadDocument(doc.id, doc.name)}
+                                    disabled={downloadingDocId === doc.id}
+                                >
+                                    {downloadingDocId === doc.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4 text-muted-foreground hover:text-primary" />}
+                                    <span className="sr-only">Unduh dokumen induk</span>
+                                </Button>
+                            )}
+                            </li>
+                        ))}
+                        </ul>
+                    </ScrollArea>
                 </div>
                 ) : (
-                <p className="text-muted-foreground">No primary document attached to parent.</p>
-                )}
-                {parentDocsForMainTaskForm.supportingDocuments && parentDocsForMainTaskForm.supportingDocuments.length > 0 ? (
-                <div>
-                    <p className="font-semibold text-foreground mt-2">Supporting Documents:</p>
-                    <ul className="space-y-1 mt-1">
-                    {parentDocsForMainTaskForm.supportingDocuments.map(doc => (
-                        <li key={doc.id} className="flex items-center gap-2 p-1.5 rounded-md bg-background/70">
-                        <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        <span>{doc.name}</span>
-                        {doc.type && <Badge variant="outline" className="text-xs">{doc.type}</Badge>}
-                        </li>
-                    ))}
-                    </ul>
-                </div>
-                ) : (
-                <p className="text-muted-foreground mt-2">No supporting documents attached to parent.</p>
+                <p className="text-muted-foreground mt-2">Tidak ada dokumen yang dilampirkan pada induk.</p>
                 )}
             </CardContent>
         </Card>
@@ -343,9 +377,10 @@ export function EditTaskClientPage({
 
       <Card className="shadow-lg mx-auto">
         <CardHeader>
-          <CardTitle>Task Details: {task?.title || 'Loading...'}</CardTitle>
+          <CardTitle>Detail {task?.parentId ? "Subtugas" : "Tugas"}: {task?.title || 'Memuat...'}</CardTitle>
           <CardDescription>
-            {currentReadOnlyState ? "Viewing task details." : "Update the information for this task."}
+            {currentReadOnlyState ? `Melihat detail ${task?.parentId ? "subtugas" : "tugas"}.` : `Perbarui informasi untuk ${task?.parentId ? "subtugas" : "tugas"} ini.`}
+             {task?.status === 'Archived' && <span className="text-primary font-semibold ml-1">(Diarsipkan - Hanya Baca)</span>}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -356,89 +391,142 @@ export function EditTaskClientPage({
               onSubmit={handleUpdateMainTask}
               onCancel={() => router.back()} 
               allAvailableDocuments={allAvailableDocuments}
-              globallyUsedPrimaryDocIds={globallyUsedPrimaryDocIds}
-              globallyUsedSupportingDocIds={globallyUsedSupportingDocIds}
               allUsers={allUsers}
               isReadOnly={currentReadOnlyState || isSubmittingForm}
-              // parentContextDocuments is not for the main form here, but for subtask forms in dialogs
+              parentContextDocuments={parentDocsForMainTaskForm}
             />
           ) : (
             <div className="flex justify-center items-center py-10">
                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                <p className="ml-2 text-muted-foreground">Loading form...</p>
+                <p className="ml-2 text-muted-foreground">Memuat formulir...</p>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {task && (
+      {task && showWorkflowActions && (
         <Card className="shadow-lg mx-auto mt-8">
           <CardHeader>
-            <CardTitle>Workflow Actions</CardTitle>
-            <CardDescription>Perform actions based on the current task status: <Badge variant={getStatusBadgeVariant(task.status)}>{task.status}</Badge></CardDescription>
+            <CardTitle>Aksi Alur Kerja {task.parentId ? "Subtugas" : "Tugas"}</CardTitle>
+            <CardDescription>Lakukan aksi berdasarkan status {task.parentId ? "subtugas" : "tugas"} saat ini: <Badge variant={getStatusBadgeVariant(task.status)}>{task.status}</Badge></CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {currentUserRole === 'staff' && task.assignedTo === currentUserId && (task.status === 'In Progress' || task.status === 'To Do') && (
-              <Button onClick={() => handleWorkflowAction(() => submitTaskForReviewAction(task.id))} disabled={isProcessingAction}>
-                {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Submit for Review
-              </Button>
+            {/* --- SUBTASK WORKFLOW ACTIONS --- */}
+            {task.parentId && (
+              <>
+                {/* Staff/CS: Submit Subtask for Review */}
+                {(currentUserRole === 'staff' || currentUserRole === 'cs') && 
+                 task.assignedTo === currentUserId && 
+                 (task.status === 'In Progress' || task.status === 'To Do') && (
+                  <Button onClick={() => handleWorkflowAction(() => submitTaskForReviewAction(task.id))} disabled={isProcessingAction}>
+                    {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Kirim untuk Direview
+                  </Button>
+                )}
+                
+                {/* Manager: Approve / Request Changes for Subtask */}
+                {currentUserRole === 'manager' && task.status === 'Pending Review' && (
+                  <div className="flex gap-2 flex-wrap">
+                    <Button onClick={() => handleWorkflowAction(() => approveTaskAction(task.id))} disabled={isProcessingAction} className="bg-green-600 hover:bg-green-700 text-white">
+                      {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />} Setujui Subtugas
+                    </Button>
+                    <Button variant="outline" onClick={() => handleWorkflowAction(() => requestChangesTaskAction(task.id))} disabled={isProcessingAction}>
+                      {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ThumbsDown className="mr-2 h-4 w-4" />} Minta Perubahan (Subtugas)
+                    </Button>
+                  </div>
+                )}
+                 {!(
+                    ((currentUserRole === 'staff' || currentUserRole === 'cs') && task.assignedTo === currentUserId && (task.status === 'In Progress' || task.status === 'To Do')) ||
+                    (currentUserRole === 'manager' && task.status === 'Pending Review')
+                 ) && task.status !== 'Approved' && task.status !== 'Archived' && task.status !== 'Blocked' && (
+                    <p className="text-sm text-muted-foreground">Tidak ada aksi alur kerja spesifik yang tersedia untuk Anda pada subtugas ini dalam status saat ini.</p>
+                 )}
+                 { (task.status === 'Approved' || task.status === 'Archived') && (
+                    <p className="text-sm text-muted-foreground">Subtugas ini telah {task.status === 'Approved' ? 'disetujui' : 'diarsipkan'} dan tidak memerlukan aksi alur kerja lebih lanjut.</p>
+                 )}
+              </>
             )}
 
-            {currentUserRole === 'cs' && task.status === 'To Do' && (task.assignedTo === currentUserId || !task.assignedTo) && (
-              <Button onClick={() => handleWorkflowAction(() => submitTaskForReviewAction(task.id))} disabled={isProcessingAction}>
-                {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Submit for Manager Review
-              </Button>
-            )}
+            {/* --- PARENT TASK WORKFLOW ACTIONS (No parentId means it's a parent task) --- */}
+            {!task.parentId && (
+              <>
+                {/* Staff (Parent): Submit for Review */}
+                {currentUserRole === 'staff' && task.assignedTo === currentUserId && (task.status === 'In Progress' || task.status === 'To Do') && (
+                  <Button onClick={() => handleWorkflowAction(() => submitTaskForReviewAction(task.id))} disabled={isProcessingAction}>
+                    {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Kirim untuk Direview
+                  </Button>
+                )}
 
-            {currentUserRole === 'manager' && task.status === 'Pending Review' && (
-              <div className="flex gap-2 flex-wrap">
-                <Button onClick={() => handleWorkflowAction(() => approveTaskAction(task.id))} disabled={isProcessingAction} className="bg-green-600 hover:bg-green-700 text-white">
-                  {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />} Approve Task
-                </Button>
-                <Button variant="outline" onClick={() => handleWorkflowAction(() => requestChangesTaskAction(task.id))} disabled={isProcessingAction}>
-                  {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ThumbsDown className="mr-2 h-4 w-4" />} Request Changes
-                </Button>
-              </div>
-            )}
+                {/* CS (Parent): Submit for Manager Review (if task is 'To Do') */}
+                {currentUserRole === 'cs' && task.status === 'To Do' && (task.assignedTo === currentUserId || !task.assignedTo) && (
+                  <Button onClick={() => handleWorkflowAction(() => submitTaskForReviewAction(task.id))} disabled={isProcessingAction}>
+                    {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Kirim untuk Direview Manajer
+                  </Button>
+                )}
+                
+                {/* Manager (Parent): Approve / Request Changes (if task 'Pending Review') */}
+                {currentUserRole === 'manager' && task.status === 'Pending Review' && (
+                  <div className="flex gap-2 flex-wrap">
+                    <Button onClick={() => handleWorkflowAction(() => approveTaskAction(task.id))} disabled={isProcessingAction} className="bg-green-600 hover:bg-green-700 text-white">
+                      {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />} Setujui Tugas
+                    </Button>
+                    <Button variant="outline" onClick={() => handleWorkflowAction(() => requestChangesTaskAction(task.id))} disabled={isProcessingAction}>
+                      {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ThumbsDown className="mr-2 h-4 w-4" />} Minta Perubahan
+                    </Button>
+                  </div>
+                )}
 
-            {currentUserRole === 'cs' && task.status === 'Approved' && (
-              <Button onClick={() => handleWorkflowAction(() => sendToNotaryAction(task.id))} disabled={isProcessingAction}>
-                {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Send to Notary Pool
-              </Button>
-            )}
+                {/* Manager (Parent): Send to CS for Notary Prep (if task 'Approved') */}
+                {currentUserRole === 'manager' && task.status === 'Approved' && (
+                  <Button onClick={() => handleWorkflowAction(() => sendToNotaryAction(task.id))} disabled={isProcessingAction}>
+                    {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Kirim untuk Persiapan Notaris (ke CS)
+                  </Button>
+                )}
 
-            {currentUserRole === 'notary' && task.status === 'Pending Notarization' && (task.assignedTo === currentUserId || !task.assignedTo) && ( 
-              <Button onClick={() => handleWorkflowAction(() => completeNotarizationAction(task.id))} disabled={isProcessingAction} className="bg-blue-600 hover:bg-blue-700 text-white">
-                 {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />} Mark Notarization Complete
-              </Button>
+                {/* CS (Parent): Mark Ready for Notarization (if task 'Pending Notarization') */}
+                {currentUserRole === 'cs' && task.status === 'Pending Notarization' && (task.assignedTo === currentUserId || !task.assignedTo) && (
+                  <Button onClick={() => handleWorkflowAction(() => markReadyForNotarizationAction(task.id /*, optionalNotaryId */))} disabled={isProcessingAction} className="bg-blue-500 hover:bg-blue-600 text-white">
+                    {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSignature className="mr-2 h-4 w-4" />} Tandai Siap untuk Notarisasi
+                  </Button>
+                )}
+
+                {/* Notary (Parent): Mark Notarization Complete OR Send Back to CS (if task 'Ready for Notarization') */}
+                {currentUserRole === 'notary' && task.status === 'Ready for Notarization' && (task.assignedTo === currentUserId || !task.assignedTo) && ( 
+                  <div className="flex gap-2 flex-wrap">
+                    <Button onClick={() => handleWorkflowAction(() => completeNotarizationAction(task.id))} disabled={isProcessingAction} className="bg-green-600 hover:bg-green-700 text-white">
+                       {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />} Tandai Notarisasi Selesai
+                    </Button>
+                    <Button variant="outline" onClick={() => handleWorkflowAction(() => revertTaskToPendingNotarizationAction(task.id))} disabled={isProcessingAction}>
+                      {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Undo2 className="mr-2 h-4 w-4" />} Kirim Kembali ke CS (Revisi)
+                    </Button>
+                  </div>
+                )}
+                
+                {/* CS (Parent): Archive Task (if task 'Notarization Complete') */}
+                {currentUserRole === 'cs' && task.status === 'Notarization Complete' && (
+                   <Button onClick={() => handleWorkflowAction(() => archiveTaskAction(task.id))} disabled={isProcessingAction}>
+                    {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Archive className="mr-2 h-4 w-4" />} Arsipkan Tugas
+                  </Button>
+                )}
+                
+                { task.status === 'Blocked' && (currentUserRole === 'admin' || currentUserRole === 'manager') && (
+                     <p className="text-sm text-destructive flex items-center"><AlertCircle className="mr-2 h-4 w-4" /> Tugas ini sedang Diblokir. Selesaikan masalah dan perbarui status melalui formulir di atas.</p>
+                )}
+                              
+                 {!isProcessingAction && 
+                    !(
+                      (currentUserRole === 'staff' && task.assignedTo === currentUserId && (task.status === 'In Progress' || task.status === 'To Do')) ||
+                      (currentUserRole === 'cs' && task.status === 'To Do' && (task.assignedTo === currentUserId || !task.assignedTo)) ||
+                      (currentUserRole === 'manager' && task.status === 'Pending Review') ||
+                      (currentUserRole === 'manager' && task.status === 'Approved') || 
+                      (currentUserRole === 'cs' && task.status === 'Pending Notarization' && (task.assignedTo === currentUserId || !task.assignedTo)) ||
+                      (currentUserRole === 'notary' && task.status === 'Ready for Notarization' && (task.assignedTo === currentUserId || !task.assignedTo)) ||
+                      (currentUserRole === 'cs' && task.status === 'Notarization Complete') ||
+                      (task.status === 'Blocked' && (currentUserRole === 'admin' || currentUserRole === 'manager'))
+                    ) && task.status !== 'Archived' && ( 
+                    <p className="text-sm text-muted-foreground">Tidak ada aksi alur kerja spesifik yang tersedia untuk Anda pada tugas ini dalam status saat ini.</p>
+                 )}
+              </>
             )}
-            
-            {currentUserRole === 'cs' && task.status === 'Notarization Complete' && (
-               <Button onClick={() => handleWorkflowAction(() => archiveTaskAction(task.id))} disabled={isProcessingAction}>
-                {isProcessingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Archive className="mr-2 h-4 w-4" />} Archive Task
-              </Button>
-            )}
-            
-            { task.status === 'Blocked' && (currentUserRole === 'admin' || currentUserRole === 'manager') && (
-                 <p className="text-sm text-destructive flex items-center"><AlertCircle className="mr-2 h-4 w-4" /> This task is currently Blocked. Resolve the issue and update status via the form above.</p>
-            )}
-             { task.status === 'Archived' && (
-                 <p className="text-sm text-green-600 flex items-center"><CheckCircle className="mr-2 h-4 w-4" /> This task has been Archived.</p>
-            )}
-             
-             {!isProcessingAction && 
-                !(
-                  (currentUserRole === 'staff' && task.assignedTo === currentUserId && (task.status === 'In Progress' || task.status === 'To Do')) ||
-                  (currentUserRole === 'cs' && task.status === 'To Do' && (task.assignedTo === currentUserId || !task.assignedTo)) ||
-                  (currentUserRole === 'manager' && task.status === 'Pending Review') ||
-                  (currentUserRole === 'cs' && task.status === 'Approved') ||
-                  (currentUserRole === 'notary' && task.status === 'Pending Notarization' && (task.assignedTo === currentUserId || !task.assignedTo)) ||
-                  (currentUserRole === 'cs' && task.status === 'Notarization Complete') ||
-                  (task.status === 'Blocked' && (currentUserRole === 'admin' || currentUserRole === 'manager')) ||
-                  task.status === 'Archived' 
-                ) && (
-                <p className="text-sm text-muted-foreground">No specific workflow actions available for you on this task in its current state.</p>
-             )}
 
 
           </CardContent>
@@ -449,9 +537,9 @@ export function EditTaskClientPage({
       <Dialog open={isAddSubtaskDialogOpen} onOpenChange={setIsAddSubtaskDialogOpen}>
         <DialogContent className="sm:max-w-[625px]">
           <DialogHeader>
-            <DialogTitle>Add New Subtask</DialogTitle>
+            <DialogTitle>Tambah Subtugas Baru</DialogTitle>
             <DialogDescription>
-              Fill in the details for the new subtask for "{task?.title}".
+              Isi detail untuk subtugas baru untuk "{task?.title}".
             </DialogDescription>
           </DialogHeader>
           <TaskForm
@@ -459,11 +547,9 @@ export function EditTaskClientPage({
             onSubmit={handleAddSubtask}
             onCancel={() => setIsAddSubtaskDialogOpen(false)}
             allAvailableDocuments={allAvailableDocuments}
-            globallyUsedPrimaryDocIds={globallyUsedPrimaryDocIds} 
-            globallyUsedSupportingDocIds={globallyUsedSupportingDocIds}
             allUsers={allUsers}
             isReadOnly={isSubmittingForm} 
-            parentContextDocuments={parentDocsForSubtaskDialog} // Pass parent (main task) documents here
+            parentContextDocuments={parentDocsForSubtaskDialog} 
           />
         </DialogContent>
       </Dialog>
@@ -474,8 +560,8 @@ export function EditTaskClientPage({
       }}>
         <DialogContent className="sm:max-w-[625px]">
           <DialogHeader>
-            <DialogTitle>Edit Subtask: {editingSubtask?.title}</DialogTitle>
-            <DialogDescription>Update the details for this subtask.</DialogDescription>
+            <DialogTitle>Ubah Subtugas: {editingSubtask?.title}</DialogTitle>
+            <DialogDescription>Perbarui detail untuk subtugas ini.</DialogDescription>
           </DialogHeader>
           {editingSubtask && (
             <>
@@ -488,11 +574,9 @@ export function EditTaskClientPage({
                   setEditingSubtask(null);
                 }}
                 allAvailableDocuments={allAvailableDocuments}
-                globallyUsedPrimaryDocIds={globallyUsedPrimaryDocIds}
-                globallyUsedSupportingDocIds={globallyUsedSupportingDocIds}
                 allUsers={allUsers}
                 isReadOnly={isSubmittingForm || !canCurrentUserEditSubtask(editingSubtask)}
-                parentContextDocuments={parentDocsForSubtaskDialog} // Pass parent (main task) documents here
+                parentContextDocuments={parentDocsForSubtaskDialog} 
               />
             </>
           )}
@@ -505,16 +589,17 @@ export function EditTaskClientPage({
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-2">
               <GitMerge className="h-6 w-6 text-primary" />
-              <CardTitle>Subtasks</CardTitle>
+              <CardTitle>Subtugas</CardTitle>
             </div>
              {canCurrentUserAddSubtask() && (
                 <Button variant="outline" size="sm" onClick={() => setIsAddSubtaskDialogOpen(true)} disabled={isProcessingAction || currentReadOnlyState}>
-                    <PlusCircle className="mr-2 h-4 w-4" /> Add Subtask
+                    <PlusCircle className="mr-2 h-4 w-4" /> Tambah Subtugas
                 </Button>
              )}
           </div>
           <CardDescription>
-            {subtasks && subtasks.length > 0 ? `This task has ${subtasks.length} subtask(s).` : 'No subtasks yet for this task or relevant to you.'}
+            {subtasks && subtasks.length > 0 ? `Tugas ini memiliki ${subtasks.length} subtugas.` : 'Belum ada subtugas untuk tugas ini atau yang relevan untuk Anda.'}
+             {task?.status === 'Archived' && subtasks && subtasks.length > 0 && <span className="text-primary font-semibold ml-1">(Diarsipkan)</span>}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -524,21 +609,21 @@ export function EditTaskClientPage({
                 <li key={sub.id} className="p-3 border rounded-md bg-muted/50 flex justify-between items-start group">
                   <div>
                     <h4 className="font-semibold text-foreground">{sub.title}</h4>
-                    <p className="text-sm text-muted-foreground mt-1">Assigned to: {allUsers.find(u => u.id === sub.assignedTo)?.name || allUsers.find(u => u.id === sub.assignedTo)?.username || sub.assignedTo || 'N/A'}</p>
-                    <p className="text-sm text-muted-foreground" suppressHydrationWarning={true}>Due: {format(new Date(sub.dueDate), 'MMM d, yyyy')}</p>
+                    <p className="text-sm text-muted-foreground mt-1">Ditugaskan kepada: {allUsers.find(u => u.id === sub.assignedTo)?.name || allUsers.find(u => u.id === sub.assignedTo)?.username || sub.assignedTo || 'N/A'}</p>
+                    <p className="text-sm text-muted-foreground" suppressHydrationWarning={true}>Tenggat: {format(new Date(sub.dueDate), 'MMM d, yyyy')}</p>
                     <Badge variant={getStatusBadgeVariant(sub.status)} className="mt-1 text-xs">{sub.status}</Badge>
                   </div>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     {canCurrentUserEditSubtask(sub) && (
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-primary hover:bg-primary/10" onClick={() => handleOpenEditSubtaskDialog(sub)} disabled={isProcessingAction}>
                         <Edit3 className="h-4 w-4" />
-                        <span className="sr-only">Edit Subtask</span>
+                        <span className="sr-only">Ubah Subtugas</span>
                         </Button>
                     )}
                     {canCurrentUserDeleteSubtask(sub) && (
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => setSubtaskToDelete(sub)} disabled={isProcessingAction}>
                         <Trash2 className="h-4 w-4" />
-                        <span className="sr-only">Delete Subtask</span>
+                        <span className="sr-only">Hapus Subtugas</span>
                         </Button>
                     )}
                   </div>
@@ -547,7 +632,7 @@ export function EditTaskClientPage({
             </ul>
           ) : (
             <p className="text-sm text-muted-foreground text-center py-4">
-                {canCurrentUserAddSubtask() ? 'Click "Add Subtask" to create the first one.' : 'No subtasks assigned or available for viewing.'}
+                {canCurrentUserAddSubtask() ? 'Klik "Tambah Subtugas" untuk membuatnya.' : 'Tidak ada subtugas yang ditugaskan atau tersedia untuk dilihat.'}
             </p>
           )}
         </CardContent>
@@ -556,21 +641,21 @@ export function EditTaskClientPage({
       <AlertDialog open={!!subtaskToDelete} onOpenChange={(open) => !open && setSubtaskToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure you want to delete this subtask?</AlertDialogTitle>
+            <AlertDialogTitle>Apakah Anda yakin ingin menghapus subtugas ini?</AlertDialogTitle>
             <AlertDialogDescription>
-              Subtask: "{subtaskToDelete?.title}"<br />
-              This action cannot be undone and will permanently remove the subtask.
+              Subtugas: "{subtaskToDelete?.title}"<br />
+              Tindakan ini tidak dapat dibatalkan dan akan menghapus subtugas secara permanen.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setSubtaskToDelete(null)} disabled={isProcessingAction || isSubmittingForm}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setSubtaskToDelete(null)} disabled={isProcessingAction || isSubmittingForm}>Batal</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteSubtask}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={isProcessingAction || isSubmittingForm || !canCurrentUserDeleteSubtask(subtaskToDelete!)}
+              disabled={isProcessingAction || isSubmittingForm || !subtaskToDelete || !canCurrentUserDeleteSubtask(subtaskToDelete)}
             >
               {(isProcessingAction || isSubmittingForm) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Delete Subtask
+              Hapus Subtugas
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

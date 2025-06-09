@@ -4,7 +4,6 @@ import { fetchNotificationsFromDB } from '@/actions/notificationActions';
 import type { Notification } from '@/types';
 import { NotificationListClient } from '@/components/notifications/NotificationListClient';
 
-// This page is now a Server Component
 export default async function NotificationsPage() {
   const initialNotifications: Notification[] = await fetchNotificationsFromDB();
 
@@ -14,12 +13,11 @@ export default async function NotificationsPage() {
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <BellRing className="h-8 w-8 text-primary" />
-            <h1 className="text-3xl font-bold tracking-tight text-foreground mt-0">Smart Notifications</h1>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground mt-0">Notifikasi Cerdas</h1>
           </div>
-          {/* Action buttons are moved to NotificationListClient as they modify state */}
         </div>
         <p className="mt-2 text-muted-foreground">
-          Stay updated with important tasks, document changes, and system alerts from the database.
+          Tetap terbarui dengan tugas penting, perubahan dokumen, dan peringatan sistem dari basis data.
         </p>
       </header>
 

@@ -21,8 +21,8 @@ import { signIn } from 'next-auth/react';
 import { useEffect } from 'react';
 
 const loginFormSchema = z.object({
-  email: z.string().email({ message: 'Please enter a valid email address.' }),
-  password: z.string().min(1, { message: 'Password is required.' }),
+  email: z.string().email({ message: 'Silakan masukkan alamat email yang valid.' }),
+  password: z.string().min(1, { message: 'Kata sandi diperlukan.' }),
 });
 
 type LoginFormValues = z.infer<typeof loginFormSchema>;
@@ -35,19 +35,17 @@ export function LoginForm() {
   useEffect(() => {
     const error = searchParams?.get('error');
     if (error) {
-      let errorMessage = 'An unexpected error occurred during login.';
+      let errorMessage = 'Terjadi kesalahan tak terduga saat login.';
       if (error === 'CredentialsSignin') {
-        errorMessage = 'Invalid email or password. Please try again.';
+        errorMessage = 'Email atau kata sandi tidak valid. Silakan coba lagi.';
       } else if (error === 'Missing email or password.') {
-        errorMessage = 'Email and password are required.';
+        errorMessage = 'Email dan kata sandi diperlukan.';
       }
-      // You can add more specific error messages if NextAuth provides them
       toast({
-        title: 'Login Failed',
+        title: 'Login Gagal',
         description: errorMessage,
         variant: 'destructive',
       });
-      // Clear the error from the URL to prevent re-toasting on refresh
       router.replace('/', { scroll: false });
     }
   }, [searchParams, toast, router]);
@@ -64,39 +62,36 @@ export function LoginForm() {
     form.clearErrors();
     
     const result = await signIn('credentials', {
-      redirect: false, // We handle redirection manually or let NextAuth do it via middleware
+      redirect: false,
       email: values.email,
       password: values.password,
     });
 
     if (result?.error) {
-      let errorMessage = 'Invalid email or password. Please try again.';
+      let errorMessage = 'Email atau kata sandi tidak valid. Silakan coba lagi.';
       if (result.error === 'CredentialsSignin') {
-        errorMessage = 'Invalid email or password. Please try again.';
+        errorMessage = 'Email atau kata sandi tidak valid. Silakan coba lagi.';
       } else if (result.error === 'Missing email or password.') {
-        errorMessage = 'Email and password are required.';
+        errorMessage = 'Email dan kata sandi diperlukan.';
       }
-      // Potentially other errors from your authorize function
       
       toast({
-        title: 'Login Failed',
+        title: 'Login Gagal',
         description: errorMessage,
         variant: 'destructive',
       });
       form.setError("password", { type: "manual", message: errorMessage });
     } else if (result?.ok && !result.error) {
-      // Successful sign in
       toast({
-        title: 'Login Successful',
-        description: 'Welcome back! Redirecting to dashboard...',
+        title: 'Login Berhasil',
+        description: 'Selamat datang kembali! Mengarahkan ke dasbor...',
       });
-      router.push('/dashboard'); // Or let middleware handle this
-      router.refresh(); // Good practice after auth change
+      router.push('/dashboard');
+      router.refresh();
     } else {
-        // Should not happen if result.error is handled
         toast({
-            title: 'Login Attempted',
-            description: 'An issue occurred. Please check credentials or try again.',
+            title: 'Percobaan Login',
+            description: 'Terjadi masalah. Silakan periksa kredensial atau coba lagi.',
             variant: 'destructive',
           });
     }
@@ -110,11 +105,11 @@ export function LoginForm() {
           name="email"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-muted-foreground">Email Address</FormLabel>
+              <FormLabel className="text-muted-foreground">Alamat Email</FormLabel>
               <FormControl>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input placeholder="you@example.com" {...field} className="pl-10" />
+                  <Input placeholder="anda@contoh.com" {...field} className="pl-10" />
                 </div>
               </FormControl>
               <FormMessage />
@@ -126,7 +121,7 @@ export function LoginForm() {
           name="password"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-muted-foreground">Password</FormLabel>
+              <FormLabel className="text-muted-foreground">Kata Sandi</FormLabel>
               <FormControl>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -139,10 +134,10 @@ export function LoginForm() {
         />
         <Button 
           type="submit" 
-          className="w-full bg-primary text-primary-foreground hover:bg-primary" /* Simplified hover class */
+          className="w-full bg-primary text-primary-foreground hover:bg-primary"
           disabled={form.formState.isSubmitting}
         >
-          {form.formState.isSubmitting ? 'Signing In...' : 'Sign In'}
+          {form.formState.isSubmitting ? 'Masuk...' : 'Masuk'}
         </Button>
       </form>
     </Form>

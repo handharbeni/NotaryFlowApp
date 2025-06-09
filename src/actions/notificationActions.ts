@@ -4,18 +4,19 @@
 import pool from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
 import type { Notification } from '@/types';
-import type { RowDataPacket, PoolConnection } from 'mysql2/promise'; // Import PoolConnection
+import type { RowDataPacket, PoolConnection } from 'mysql2/promise';
 
 export async function fetchNotificationsFromDB(): Promise<Notification[]> {
   try {
     const [rows] = await pool.query<RowDataPacket[]>(
-      'SELECT id, userId, type, title, description, date, \`read\`, priority, relatedTaskId, relatedDocumentId FROM notifications ORDER BY date DESC'
+      'SELECT id, userId, type, title, description, date, \`read\`, priority, relatedTaskId, relatedDocumentId, relatedRequestId FROM notifications ORDER BY date DESC'
     );
     return rows.map(row => ({
       ...row,
       date: new Date(row.date),
       read: Boolean(row.read), 
       priority: row.priority as Notification['priority'],
+      type: row.type as Notification['type'],
     })) as Notification[];
   } catch (error: any) {
     console.error('Error fetching notifications from DB:', error);
@@ -37,14 +38,14 @@ export async function fetchUnreadNotificationCount(): Promise<number> {
 
 export async function createNotificationInDB(
   data: Omit<Notification, 'id' | 'date' | 'read'>,
-  existingConnection?: PoolConnection // Optional existing connection
+  existingConnection?: PoolConnection
 ): Promise<{ success: boolean; notificationId?: string; error?: string }> {
   const notificationId = uuidv4();
   const query = `
-    INSERT INTO notifications (id, userId, type, title, description, priority, relatedTaskId, relatedDocumentId, date, \`read\`)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), FALSE)
+    INSERT INTO notifications (id, userId, type, title, description, priority, relatedTaskId, relatedDocumentId, relatedRequestId, date, \`read\`)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), FALSE)
   `;
-  const connection = existingConnection || pool; // Use existing or default pool
+  const connection = existingConnection || pool;
   try {
     await connection.execute(query, [
       notificationId,
@@ -55,13 +56,13 @@ export async function createNotificationInDB(
       data.priority,
       data.relatedTaskId || null,
       data.relatedDocumentId || null,
+      data.relatedRequestId || null,
     ]);
     return { success: true, notificationId };
   } catch (error: any) {
     console.error('Error creating notification in DB:', error);
     return { success: false, error: `Failed to create notification: ${error.message}` };
   } finally {
-    // Only release if we acquired a new connection, not if one was passed in
     if (!existingConnection && connection !== pool && 'release' in connection) {
       (connection as PoolConnection).release();
     }
@@ -106,7 +107,7 @@ export async function markAllNotificationsAsReadInDB(): Promise<{ success: boole
   const query = 'UPDATE notifications SET \`read\` = TRUE WHERE \`read\` = FALSE'; 
   try {
     const [result] = await pool.execute(query);
-     // @ts-ignore
+    // @ts-ignore
     return { success: true, affectedRows: result.affectedRows };
   } catch (error: any) {
     console.error('Error marking all notifications as read:', error);
@@ -118,7 +119,7 @@ export async function clearAllNotificationsFromDB(): Promise<{ success: boolean;
   const query = 'DELETE FROM notifications';
   try {
     const [result] = await pool.execute(query);
-     // @ts-ignore
+    // @ts-ignore
     return { success: true, affectedRows: result.affectedRows };
   } catch (error: any) {
     console.error('Error clearing all notifications:', error);
